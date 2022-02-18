@@ -1,0 +1,10 @@
+{
+  "minecraft": {
+    "script": "start.sh",
+    "directory": "mc",
+    "folders": [
+      "mods"
+    ],
+    "exclude": "(?m).+[^(jar)]$"
+  }
+}
