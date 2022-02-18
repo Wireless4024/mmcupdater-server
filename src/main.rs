@@ -71,7 +71,7 @@ async fn main() -> Result<()> {
 		file.shutdown().await?;
 	}
 	tracing_subscriber::fmt::init();
-	let app = Router::new()
+	let mut app = Router::new()
 		.route("/config.json", get(config))
 		.route("/stop", get(shutdown))
 		.route("/status", get(status))
@@ -80,7 +80,10 @@ async fn main() -> Result<()> {
 		.route("/update_cfg", post(update_cfg))
 		.layer(CorsLayer::permissive())
 		.nest("/mods", get(handler));
-
+	if Path::new("web").exists() {
+		info!("found web folder adding route to it");
+		app = app.nest("/web", get(get_web_file))
+	}
 	tokio::spawn(async move {
 		let mut default_config_file = File::open("default_server.json").await?;
 		let mut data = String::new();
@@ -128,6 +131,17 @@ async fn get_static_file(uri: Uri) -> Result<Response<BoxBody>, (StatusCode, Str
 	let server = MCSERVER.get().unwrap().read().await;
 
 	match ServeDir::new(server.dir("mods")).oneshot(req).await {
+		Ok(res) => Ok(res.map(boxed)),
+		Err(err) => Err((
+			StatusCode::INTERNAL_SERVER_ERROR,
+			format!("Something went wrong: {}", err),
+		)),
+	}
+}
+
+async fn get_web_file(uri: Uri) -> Result<Response<BoxBody>, (StatusCode, String)> {
+	let req = Request::builder().uri(uri).body(Body::empty()).unwrap();
+	match ServeDir::new("web").oneshot(req).await {
 		Ok(res) => Ok(res.map(boxed)),
 		Err(err) => Err((
 			StatusCode::INTERNAL_SERVER_ERROR,
