@@ -88,14 +88,15 @@ async fn main() -> Result<()> {
 		let mut default_config_file = File::open("default_server.json").await?;
 		let mut data = String::new();
 		default_config_file.read_to_string(&mut data).await?;
+		info!("Loading default server");
 
-		let cfg: Config = serde_json::from_str(data.as_str())?;
+		let cfg: Config = serde_json::from_str(data.as_str()).unwrap();
 
-		let config = cfg.minecraft.create_config().await?;
+		let config = cfg.minecraft.create_config().await.unwrap();
 
 		SERVER_CONFIG.set(RwLock::new(config)).ok();
-
-		let mut server = cfg.minecraft.build()?;
+		info!("Building minecraft instance");
+		let mut server = cfg.minecraft.build().unwrap();
 		MCSERVER.set(RwLock::new(server)).ok();
 
 		Result::<()>::Ok(())

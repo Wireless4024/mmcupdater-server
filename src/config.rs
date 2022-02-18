@@ -62,7 +62,11 @@ impl Minecraft {
 	}
 
 	pub async fn scan_mods(&self) -> Result<Vec<MinecraftMod>> {
-		let files = crate::file_scanner::scan_files_exclude(self.dir("mods"), self.exclude.as_str()).await?;
+		let mod_dir = self.dir("mods");
+		if !mod_dir.exists() {
+			return Ok(Vec::new());
+		}
+		let files = crate::file_scanner::scan_files_exclude(mod_dir, self.exclude.as_str()).await?;
 		let mut file_infos = Vec::with_capacity(files.len());
 		for x in files {
 			file_infos.push(spawn(MinecraftMod::new(x)));
