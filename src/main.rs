@@ -119,7 +119,9 @@ async fn handler(uri: Uri) -> Result<Response<BoxBody>, (StatusCode, String)> {
 async fn get_static_file(uri: Uri) -> Result<Response<BoxBody>, (StatusCode, String)> {
 	let req = Request::builder().uri(uri).body(Body::empty()).unwrap();
 	// `ServeDir` implements `tower::Service` so we can call it with `tower::ServiceExt::oneshot`
-	match ServeDir::new("mc/mods").oneshot(req).await {
+	let  server = MCSERVER.get().unwrap().read().await;
+
+	match ServeDir::new(server.dir("mods")).oneshot(req).await {
 		Ok(res) => Ok(res.map(boxed)),
 		Err(err) => Err((
 			StatusCode::INTERNAL_SERVER_ERROR,
