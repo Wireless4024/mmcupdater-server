@@ -19,7 +19,7 @@
 
 	let refresh_interval
 
-	const SERVER_URL = 'http://localhost:8888'
+	const SERVER_URL = ''
 
 	function refresh_status() {
 		fetch(`${SERVER_URL}/status`, {}).then(it => it.text()).then(it => server_status = it).catch(_ => server_status = 'UNKNOWN')
@@ -63,15 +63,26 @@
 		try {
 			auth_code = code ? code : prompt("enter auth env from .env file")
 			if (!auth_code?.length) return false
-			await fetch(`${SERVER_URL}/update`, {
+			return admin_mode = await (fetch(`${SERVER_URL}/update`, {
 				headers: {
 					Authorization: auth_code
 				},
 				method : 'POST',
 				body   : new FormData()
-			})
-			localStorage.setItem("auth_code", auth_code)
-			return admin_mode = true
+			}).then(resp => {
+				if (resp.ok) {
+					localStorage.setItem("auth_code", auth_code)
+					return true
+				}else{
+					localStorage.removeItem("auth_code")
+					auth_code = ''
+					return false
+				}
+			}).catch(_ => {
+				localStorage.removeItem("auth_code")
+				auth_code = ''
+				return false
+			}))
 		} catch (e) {
 			localStorage.removeItem("auth_code")
 			auth_code = ''
