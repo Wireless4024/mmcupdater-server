@@ -29,7 +29,7 @@ use tracing::{debug, info, warn};
 use tracing::field::debug;
 
 use crate::config::{Config, Minecraft, MinecraftServer};
-use crate::config::MinecraftServerStatus::RUNNING;
+use crate::config::MinecraftServerStatus::{RUNNING, STOPPED};
 use crate::jar_scanner::get_manifest;
 use crate::minecraft_mod::MinecraftMod;
 use crate::schema::MinecraftServerConfig;
@@ -198,11 +198,14 @@ async fn update(mut multipart: extract::Multipart, _: Protected) -> impl IntoRes
 
 				rename(tmp, mod_dir.join(filename.as_str())).await.ok();
 
-				tokio::spawn(async {
-					if let Err(e) = restart_server().await {
-						warn!("{}", e);
-					};
-				});
+				// don't restart if server is gracefully stopped
+				if server_status != STOPPED {
+					tokio::spawn(async {
+						if let Err(e) = restart_server().await {
+							warn!("{}", e);
+						};
+					});
+				}
 				break;
 			}
 		}
