@@ -20,12 +20,12 @@ use tokio::task::JoinHandle;
 use tokio::time::{sleep, timeout};
 use tracing::{debug, info, trace, warn};
 use tracing::field::debug;
-use crate::config::MinecraftServerStatus::{CRASHED, STOPPED};
+use crate::config::MinecraftServerStatus::{CRASHED, STARTING, STOPPED};
 use crate::file_scanner::scan_files_exclude;
 
 use crate::minecraft_mod::MinecraftMod;
 use crate::schema::{ForgeInfo, MinecraftServerConfig};
-use crate::status;
+use crate::{RUNNING, status};
 
 #[derive(Serialize, Deserialize)]
 pub struct Config {
@@ -167,7 +167,6 @@ pub struct MinecraftServer {
 
 #[derive(PartialEq, Debug, Copy, Clone)]
 pub enum MinecraftServerStatus {
-	IDLE,
 	STARTING,
 	RUNNING,
 	CRASHED,
@@ -268,13 +267,16 @@ impl MinecraftServer {
 
 	pub async fn input(&self, message: impl AsRef<[u8]>) -> Result<()> {
 		let data = message.as_ref();
-		let mut sin = self.stdin.write().await;
-		let stdin = sin.as_mut().unwrap();
-		stdin.write_all(data).await?;
-		if let Some(b'\n') = data.last() {} else {
-			stdin.write(&[b'\n']).await?;
+		let mut stdin = self.stdin.write().await;
+		if let Some(stdin) = stdin.as_mut() {
+			stdin.write_all(data).await?;
+			if let Some(b'\n') = data.last() {} else {
+				stdin.write(&[b'\n']).await?;
+			}
+			stdin.flush().await?;
 		}
-		stdin.flush().await?;
+		drop(stdin);
+
 		Ok(())
 	}
 
@@ -284,10 +286,12 @@ impl MinecraftServer {
 		msg.push_str("say ");
 		msg.push_str(data);
 		msg.push('\n');
-		let mut sin = self.stdin.write().await;
-		let stdin = sin.as_mut().unwrap();
-		stdin.write_all(msg.as_bytes()).await?;
-		stdin.flush().await?;
+		let mut stdin = self.stdin.write().await;
+		if let Some(stdin) = stdin.as_mut() {
+			stdin.write_all(msg.as_bytes()).await?;
+			stdin.flush().await?;
+		}
+		drop(stdin);
 		Ok(())
 	}
 
@@ -301,40 +305,46 @@ impl MinecraftServer {
 		if let Some(stdout) = child.stdout.take() {
 			self.create_heartbeat(stdout, self.status.clone(), self.process.clone());
 		}
+		let stdin = child.stdin.take();
 		*self.process.lock().await = Some(child);
+		*self.stdin.write().await = stdin.map(|it| BufWriter::new(it));
 		Ok(())
 	}
 
-	pub async fn update_config<'a>(&self, mut lock: RwLockWriteGuard<'a, MinecraftServerConfig>) -> Result<()> {
-		*lock = self.create_config().await?;
-		Ok(())
+	pub async fn update_config(&self) -> Result<MinecraftServerConfig> {
+		Ok(self.create_config().await?)
 	}
 
 	pub async fn shutdown_in_place(&self) -> Result<()> {
+		debug!("stopping server");
+		let mut sin = self.stdin.write().await;
+		trace!("taking stdin");
+		let mut stdin = sin.take();
+		drop(sin);
 		let status = self.status().await;
-		if status != STOPPED && status != CRASHED {
-			let mut sin = self.stdin.write().await;
-			if let Some(mut stdin) = sin.take() {
-				if self.status().await == MinecraftServerStatus::RUNNING {
-					debug!("Server is running! stop event will wait for 15 seconds");
-					stdin.write_all("say Server will stop within 15 seconds\n".as_bytes()).await?;
-					stdin.flush().await?;
-					let mut no = String::with_capacity(8);
-					use std::fmt::Write;
-					for counter in (0..=14).rev() {
-						sleep(Duration::from_secs(1)).await;
-						no.clear();
-						no.push_str("say ");
-						writeln!(&mut no, "{}", counter).ok();
-						stdin.write_all(no.as_bytes()).await?;
-						stdin.flush().await?;
-					}
-				}
 
-				stdin.write_all("stop\n".as_bytes()).await?;
+		if let Some(mut stdin) = stdin {
+			if status == RUNNING || status == STARTING {
+				debug!("Server is running! stop event will wait for 15 seconds");
+				stdin.write_all("say Server will stop within 15 seconds\n".as_bytes()).await?;
 				stdin.flush().await?;
-				sleep(Duration::from_secs(1)).await;
+				let mut no = String::with_capacity(8);
+				use std::fmt::Write;
+				for counter in (0..=14).rev() {
+					sleep(Duration::from_secs(1)).await;
+					no.clear();
+					no.push_str("say ");
+					writeln!(&mut no, "{}", counter).ok();
+					stdin.write_all(no.as_bytes()).await?;
+					stdin.flush().await?;
+				}
 			}
+
+			stdin.write_all("stop\n".as_bytes()).await?;
+			stdin.flush().await?;
+			sleep(Duration::from_secs(1)).await;
+		} else {
+			trace!("can't take stdin!");
 		}
 
 		if let Some(mut process) = self.process.lock().await.take() {

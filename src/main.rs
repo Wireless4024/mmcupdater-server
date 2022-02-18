@@ -25,7 +25,8 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::{OnceCell, RwLock};
 use tower::ServiceExt;
 use tower_http::services::ServeDir;
-use tracing::info;
+use tracing::{debug, info, warn};
+use tracing::field::debug;
 
 use crate::config::{Config, Minecraft, MinecraftServer};
 use crate::config::MinecraftServerStatus::RUNNING;
@@ -119,7 +120,7 @@ async fn handler(uri: Uri) -> Result<Response<BoxBody>, (StatusCode, String)> {
 async fn get_static_file(uri: Uri) -> Result<Response<BoxBody>, (StatusCode, String)> {
 	let req = Request::builder().uri(uri).body(Body::empty()).unwrap();
 	// `ServeDir` implements `tower::Service` so we can call it with `tower::ServiceExt::oneshot`
-	let  server = MCSERVER.get().unwrap().read().await;
+	let server = MCSERVER.get().unwrap().read().await;
 
 	match ServeDir::new(server.dir("mods")).oneshot(req).await {
 		Ok(res) => Ok(res.map(boxed)),
@@ -139,7 +140,13 @@ async fn shutdown(_: Protected) -> impl IntoResponse {
 
 async fn restart_server() -> Result<()> {
 	let mut server = MCSERVER.get().unwrap().read().await;
-	server.update_config(SERVER_CONFIG.get().unwrap().write().await).await.ok();
+	let config = server.update_config().await?;
+	debug!("updating config");
+	let mut cfg = SERVER_CONFIG.get().unwrap().write().await;
+	*cfg = config;
+	drop(cfg); // unlock
+
+	debug!("restarting server");
 	server.restart_in_place().await.unwrap();
 	Ok(())
 }
@@ -176,7 +183,7 @@ async fn update(mut multipart: extract::Multipart, _: Protected) -> impl IntoRes
 				};
 				tmp_file.flush().await.unwrap();
 
-				let server = MCSERVER.get().unwrap().write().await;
+				let server = MCSERVER.get().unwrap().read().await;
 				let mc_server = server;
 
 				let mod_info = MinecraftMod::new(&tmp).await.unwrap();
@@ -192,7 +199,9 @@ async fn update(mut multipart: extract::Multipart, _: Protected) -> impl IntoRes
 				rename(tmp, mod_dir.join(filename.as_str())).await.ok();
 
 				tokio::spawn(async {
-					restart_server().await.ok();
+					if let Err(e) = restart_server().await {
+						warn!("{}", e);
+					};
 				});
 				break;
 			}
