@@ -138,8 +138,8 @@ async fn get_static_file(uri: Uri) -> Result<Response<BoxBody>, (StatusCode, Str
 async fn shutdown(_: Protected) -> impl IntoResponse {
 	let mut server = MCSERVER.get().unwrap().read().await;
 	server.shutdown_in_place().await.ok();
-	std::process::exit(0);
-	""
+	//std::process::exit(0);
+	"Ok"
 }
 
 async fn update_config(config: MinecraftServerConfig) {
