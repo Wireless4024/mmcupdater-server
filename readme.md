@@ -90,6 +90,13 @@ curl 'http://$HOST/update' -v -F 'file=@path/to/jar'
 Requirement:
 + cargo and rustup
 + node and npm (if you need ui)
+> if your machine is weak please edit last section of [Cargo.toml](Cargo.toml) to this
+> (it will make build process faster)
+> ```toml
+> [profile.release]
+> opt-level = 1
+> lto = "off"
+>  ```
 ```shell
 ./build please
 ```
