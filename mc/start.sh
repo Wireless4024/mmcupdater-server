@@ -13,7 +13,7 @@ if [ "$2" ]; then
 fi
 
 if [ ! -f "version" ]; then
-    echo $forge_installer_file > version
+    echo '--' > version
 fi
 
 current_version=`echo $( < version)`
