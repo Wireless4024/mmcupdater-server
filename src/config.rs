@@ -126,12 +126,25 @@ impl Minecraft {
 		cmd.spawn()
 	}
 
+	pub async fn update_forge_cfg(&self, cfg: ForgeInfo) -> Result<MinecraftServerConfig> {
+		let mut old_config = self.raw_config().await?;
+		old_config.config = cfg;
+		let cfg_json = serde_json::to_string_pretty(&old_config)?;
+		let mut file = File::create(self.dir("config.json")).await?;
+		file.write_all(cfg_json.as_bytes()).await?;
+		file.shutdown().await?;
+		Ok(self.scan_existing_mod(old_config).await?)
+	}
 
-	pub async fn create_config(&self) -> Result<MinecraftServerConfig> {
+	async fn raw_config(&self) -> Result<MinecraftServerConfig> {
 		let mut file = File::open(self.dir("config.json")).await?;
 		let mut data = String::new();
 		file.read_to_string(&mut data).await?;
-		let mut config: MinecraftServerConfig = serde_json::from_str(data.as_str())?;
+		let config: MinecraftServerConfig = serde_json::from_str(data.as_str())?;
+		Ok(config)
+	}
+
+	async fn scan_existing_mod(&self, mut config: MinecraftServerConfig) -> Result<MinecraftServerConfig> {
 		let mut mod_table = HashMap::<String, MinecraftMod>::new();
 		for mc_mod in std::mem::take(&mut config.mods).into_iter() {
 			mod_table.insert(mc_mod.name.to_string(), mc_mod);
@@ -146,6 +159,11 @@ impl Minecraft {
 
 		config.mods = mod_table.into_values().collect();
 		Ok(config)
+	}
+
+	pub async fn create_config(&self) -> Result<MinecraftServerConfig> {
+		let config = self.raw_config().await?;
+		Ok(self.scan_existing_mod(config).await?)
 	}
 
 	pub fn start(self) -> Result<MinecraftServer> {
