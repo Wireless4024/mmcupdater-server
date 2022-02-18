@@ -1,13 +1,34 @@
 #!/bin/bash
 
-# start script
+forge_installer_file='forge-1.18.1-39.0.79-installer.jar'
+java=java
 
-java --add-exports java.base/sun.security.util=ALL-UNNAMED --add-opens java.base/java.util=ALL-UNNAMED --add-opens java.base/java.util.jar=ALL-UNNAMED \
--XX:+UnlockExperimentalVMOptions -XX:+UseG1GC -XX:G1NewSizePercent=40 -XX:G1ReservePercent=1 \
--XX:G1HeapRegionSize=2M -XX:+TieredCompilation -XX:MaxTenuringThreshold=2 -XX:+OptimizeStringConcat \
--XX:+ParallelRefProcEnabled -XX:+AlwaysPreTouch -XX:+UseNUMA -XX:-UseStringDeduplication -XX:-G1UseAdaptiveIHOP \
--XX:G1HeapWastePercent=10 -XX:G1MixedGCCountTarget=4 -XX:G1MixedGCLiveThresholdPercent=70 -XX:InitiatingHeapOccupancyPercent=70 \
--XX:G1RSetUpdatingPauseTimePercent=5 -XX:SurvivorRatio=32 -XX:+PerfDisableSharedMem -server \
--XX:FreqInlineSize=63 -XX:InlineSmallCode=11174 -XX:MaxInlineLevel=2239 -XX:MaxInlineSize=24 -XX:MaxRecursiveInlineLevel=186 -XX:MinInliningThreshold=40 \
--XX:+UseJVMCINativeLibrary -XX:+UseJVMCICompiler -XX:MaxGCPauseMillis=200 -Xms512M -Xmx4G \
--jar minecraft_server.jar nogui
+if [ "$1" ]; then
+    forge_installer_file="forge-$1-installer.jar"
+
+fi
+
+if [ "$2" ]; then
+    java="$2"
+fi
+
+if [ ! -f "version" ]; then
+    echo $forge_installer_file > version
+fi
+
+current_version=`echo $( < version)`
+
+ver="${forge_installer_file::-14}"
+ver="${ver#forge-}"
+if [ ! -f "forge_installer_file" ]; then
+    curl -O -L "https://maven.minecraftforge.net/net/minecraftforge/forge/$ver/$forge_installer_file"
+fi
+
+if [[ "$current_version" != "$forge_installer_file" ]]; then
+    $java -jar $forge_installer_file --installServer
+fi
+
+script_file="libraries/net/minecraftforge/forge/$ver/unix_args.txt"
+script=`echo $(< $script_file)`
+
+$java @user_jvm_args.txt $script nogui

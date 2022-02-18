@@ -34,7 +34,7 @@ use crate::config::{Config, Minecraft, MinecraftServer};
 use crate::config::MinecraftServerStatus::{RUNNING, STOPPED};
 use crate::jar_scanner::get_manifest;
 use crate::minecraft_mod::MinecraftMod;
-use crate::schema::MinecraftServerConfig;
+use crate::schema::{ForgeInfo, MinecraftServerConfig};
 
 mod config;
 mod file_scanner;
@@ -77,6 +77,7 @@ async fn main() -> Result<()> {
 		.route("/status", get(status))
 		.route("/restart", get(restart))
 		.route("/update", post(update))
+		.route("/update_cfg", post(update_cfg))
 		.layer(CorsLayer::permissive())
 		.nest("/mods", get(handler));
 
@@ -160,6 +161,12 @@ async fn restart_server() -> Result<()> {
 
 async fn restart(_: Protected) -> impl IntoResponse {
 	restart_server().await.ok();
+	"Ok"
+}
+
+async fn update_cfg(extract::Json(payload): extract::Json<ForgeInfo>, _: Protected) -> impl IntoResponse {
+	let mut server = MCSERVER.get().unwrap().read().await;
+	update_config(server.update_forge_cfg(payload).await.unwrap()).await;
 	"Ok"
 }
 

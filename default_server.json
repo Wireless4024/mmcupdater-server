@@ -1,6 +1,7 @@
 {
   "minecraft": {
     "script": "start.sh",
+    "java": "java",
     "directory": "mc",
     "folders": [
       "mods"

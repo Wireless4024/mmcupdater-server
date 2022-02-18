@@ -20,12 +20,12 @@ use tokio::task::JoinHandle;
 use tokio::time::{sleep, timeout};
 use tracing::{debug, info, trace, warn};
 use tracing::field::debug;
+
+use crate::{config, RUNNING, status};
 use crate::config::MinecraftServerStatus::{CRASHED, STARTING, STOPPED};
 use crate::file_scanner::scan_files_exclude;
-
 use crate::minecraft_mod::MinecraftMod;
 use crate::schema::{ForgeInfo, MinecraftServerConfig};
-use crate::{RUNNING, status};
 
 #[derive(Serialize, Deserialize)]
 pub struct Config {
@@ -37,6 +37,7 @@ impl Default for Config {
 		Self {
 			minecraft: Minecraft {
 				script: String::from("start.sh"),
+				java: None,
 				directory: String::from("mc"),
 				folders: vec![String::from("mods")],
 				exclude: String::from(".+\\.(bak|old)$"),
@@ -48,6 +49,7 @@ impl Default for Config {
 #[derive(Serialize, Deserialize)]
 pub struct Minecraft {
 	pub script: String,
+	pub java: Option<String>,
 	pub directory: String,
 	pub(crate) folders: Vec<String>,
 	pub(crate) exclude: String,
@@ -115,15 +117,21 @@ impl Minecraft {
 		todo!()
 	}
 
-	pub(crate) fn spawn(&self) -> std::io::Result<Child> {
+	pub(crate) async fn spawn(&self) -> Result<Child> {
 		debug!("Spawning server");
 		let mut cmd = Command::new(self.dir(self.script.as_str()).canonicalize()?);
+		let config = self.raw_config().await?.config;
+		cmd.arg(format!("{}-{}", config.mc_version, config.forge_version));
+
+		if let Some(java) = self.java.as_ref() {
+			cmd.arg(java);
+		}
 		cmd.kill_on_drop(true);
 		cmd.current_dir(self.dir("").canonicalize()?);
 		cmd.stderr(Stdio::null());
 		cmd.stdout(Stdio::piped());
 		cmd.stdin(Stdio::piped());
-		cmd.spawn()
+		Ok(cmd.spawn()?)
 	}
 
 	pub async fn update_forge_cfg(&self, cfg: ForgeInfo) -> Result<MinecraftServerConfig> {
@@ -166,8 +174,8 @@ impl Minecraft {
 		Ok(self.scan_existing_mod(config).await?)
 	}
 
-	pub fn start(self) -> Result<MinecraftServer> {
-		let process = self.spawn()?;
+	pub async fn start(self) -> Result<MinecraftServer> {
+		let process = self.spawn().await?;
 		Ok(MinecraftServer::new(self, Some(process))?)
 	}
 
@@ -319,7 +327,7 @@ impl MinecraftServer {
 			return Ok(());
 		}
 		self.shutdown_in_place().await.ok();
-		let mut child = self.cfg.spawn()?;
+		let mut child = self.cfg.spawn().await?;
 		if let Some(stdout) = child.stdout.take() {
 			self.create_heartbeat(stdout, self.status.clone(), self.process.clone());
 		}
