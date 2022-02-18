@@ -20,11 +20,12 @@ use bytes::Buf;
 use futures::{StreamExt, TryStreamExt};
 use futures::future::ok;
 use rand::prelude::*;
+use serde::Serialize;
 use tokio::fs::{create_dir_all, File, OpenOptions, remove_file, rename};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::{OnceCell, RwLock};
-use tower_http::cors::CorsLayer;
 use tower::util::ServiceExt;
+use tower_http::cors::CorsLayer;
 use tower_http::services::ServeDir;
 use tracing::{debug, info, warn};
 use tracing::field::debug;
@@ -141,13 +142,16 @@ async fn shutdown(_: Protected) -> impl IntoResponse {
 	""
 }
 
-async fn restart_server() -> Result<()> {
-	let mut server = MCSERVER.get().unwrap().read().await;
-	let config = server.update_config().await?;
+async fn update_config(config: MinecraftServerConfig) {
 	debug!("updating config");
 	let mut cfg = SERVER_CONFIG.get().unwrap().write().await;
 	*cfg = config;
 	drop(cfg); // unlock
+}
+
+async fn restart_server() -> Result<()> {
+	let mut server = MCSERVER.get().unwrap().read().await;
+	update_config(server.create_config().await?).await;
 
 	debug!("restarting server");
 	server.restart_in_place().await.unwrap();
@@ -200,6 +204,8 @@ async fn update(mut multipart: extract::Multipart, _: Protected) -> impl IntoRes
 					let old_file = mod_dir.join(mcmod.file_name.as_str());
 					remove_file(&old_file).await.ok();
 				}
+				// deadlock
+				drop(sconfig);
 
 				rename(tmp, mod_dir.join(filename.as_str())).await.ok();
 
@@ -210,12 +216,19 @@ async fn update(mut multipart: extract::Multipart, _: Protected) -> impl IntoRes
 							warn!("{}", e);
 						};
 					});
+				} else {
+					update_config(mc_server.create_config().await.unwrap()).await;
 				}
-				break;
+				return (StatusCode::OK, Json(Some(mod_info)));
 			}
 		}
 	}
-	"Ok"
+	(StatusCode::OK, Json(None))
+}
+
+#[derive(Serialize)]
+struct Status {
+	ok: bool,
 }
 
 pub(crate) struct Protected;
