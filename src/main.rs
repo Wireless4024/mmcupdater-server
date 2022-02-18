@@ -23,7 +23,8 @@ use rand::prelude::*;
 use tokio::fs::{create_dir_all, File, OpenOptions, remove_file, rename};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::{OnceCell, RwLock};
-use tower::ServiceExt;
+use tower_http::cors::CorsLayer;
+use tower::util::ServiceExt;
 use tower_http::services::ServeDir;
 use tracing::{debug, info, warn};
 use tracing::field::debug;
@@ -53,7 +54,7 @@ async fn main() -> Result<()> {
 	dotenv::dotenv().ok();
 //	println!("{:?}", get_manifest("mc/mods/Quark-r2.4-321.jar").await?);;
 	if std::env::var_os("RUST_LOG").is_none() {
-		std::env::set_var("RUST_LOG", "debug")
+		std::env::set_var("RUST_LOG", "info")
 	}
 	if std::env::var_os("auth").is_none() {
 		let mut secret = [0u8; 64];
@@ -75,6 +76,7 @@ async fn main() -> Result<()> {
 		.route("/status", get(status))
 		.route("/restart", get(restart))
 		.route("/update", post(update))
+		.layer(CorsLayer::permissive())
 		.nest("/mods", get(handler));
 
 	tokio::spawn(async move {
@@ -102,6 +104,7 @@ async fn main() -> Result<()> {
 		defaut_addr
 	};
 	axum::Server::bind(&addr)
+		.tcp_nodelay(true)
 		.serve(app.into_make_service())
 		.await
 		.unwrap();
@@ -185,6 +188,8 @@ async fn update(mut multipart: extract::Multipart, _: Protected) -> impl IntoRes
 
 				let server = MCSERVER.get().unwrap().read().await;
 				let mc_server = server;
+
+				let server_status = mc_server.status().await;
 
 				let mod_info = MinecraftMod::new(&tmp).await.unwrap();
 
