@@ -52,6 +52,9 @@
 				mods  : {}
 			}
 		})
+		if (server_config.config.mc_version) {
+			version_manager = server_config.config
+		}
 	}
 
 	let auth_code: string = localStorage.getItem("auth_code") || ""
@@ -119,6 +122,17 @@
 		}
 	}
 
+	async function stop() {
+		if (auth_code) {
+			if (!(server_status == 'STOPPED' || server_status == 'CRASHED') && !confirm("do you really want to stop server?")) return
+			await fetch(`${SERVER_URL}/stop`, {
+				headers: {
+					Authorization: auth_code
+				}
+			})
+		}
+	}
+
 	async function handle_file(ev) {
 		const target: HTMLInputElement = ev.target
 		const files = target.files
@@ -144,6 +158,23 @@
 
 		target.value = ''
 	}
+
+	let version_manager = {
+		mc_version   : "",
+		forge_version: "",
+	}
+
+	async function update_forge() {
+		await fetch(`${SERVER_URL}/update_cfg`, {
+			headers: {
+				Authorization : auth_code,
+				'Content-Type': 'application/json'
+			},
+			method : 'POST',
+			body   : JSON.stringify(version_manager)
+		})
+		await loadConfig()
+	}
 </script>
 <svelte:head>
 	<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.0/dist/css/bootstrap.min.css">
@@ -157,7 +188,8 @@
 					{#if !admin_mode}
 						<a on:click={()=>check_admin()} href="javascript:void 0">turn on admin mode?</a>
 					{:else}
-						<a on:click={restart} href="javascript:void 0">restart</a>
+						<a on:click={restart} href="javascript:void 0">restart</a> |
+						<a on:click={stop} href="javascript:void 0">stop</a>
 					{/if}
 				</Alert>
 			</Col>
@@ -165,18 +197,35 @@
 		<TabContent>
 			<TabPane tabId="overview" tab="Overview" active>
 				<h2>Mods</h2>
+				<Row class="py-1">
+					<Col class="col-6" md="7">
+						Minecraft
+					</Col>
+					<Col class="col-6" md="5">
+						<Button>
+							{version_manager.mc_version}
+						</Button>
+					</Col>
+				</Row>
+				<Row class="py-1">
+					<Col class="col-6" md="7">
+						Minecraft forge
+					</Col>
+					<Col class="col-6" md="5">
+						<Button>
+							{version_manager.forge_version}
+						</Button>
+					</Col>
+				</Row>
 				{#if server_config?.mods}
 					{#each server_config?.mods as mod}
-						<Row>
-							<Col md="5">
+						<Row class="py-1">
+							<Col class="col-6" md="7">
 								{mod.name}
 							</Col>
-							<Col md="5">
-								{mod.version}
-							</Col>
-							<Col md="2">
+							<Col class="col-6" md="5">
 								<Button href={mod.file_name.startsWith("http")?mod.file_name:`${SERVER_URL}/mods/${mod.file_name}`}>
-									Download
+									{mod.version}
 								</Button>
 							</Col>
 						</Row>
@@ -198,6 +247,19 @@
 						</Col>
 					</Row>
 				</TabPane>
+				<TabPane tabId="instance_manager" tab="Instance Manager">
+					<h2>Instance Manager</h2>
+					<FormGroup>
+						<Label for="mc_version" required>Minecraft version</Label>
+						<Input bind:value={version_manager.mc_version}/>
+					</FormGroup>
+					<FormGroup>
+						<Label for="forge_version" required>Forge version</Label>
+						<Input bind:value={version_manager.forge_version}/>
+					</FormGroup>
+					<Button on:click={update_forge}>Save</Button>
+				</TabPane>
+
 			{/if}
 		</TabContent>
 	</Container>
