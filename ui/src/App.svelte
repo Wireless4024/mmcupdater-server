@@ -144,6 +144,17 @@
 		}
 	}
 
+	async function kill() {
+		if (auth_code) {
+			if (!confirm("do you really want to stop server?")) return
+			await fetch(`${SERVER_URL}/kill`, {
+				headers: {
+					Authorization: auth_code
+				}
+			})
+		}
+	}
+
 	async function handle_file(ev) {
 		const target: HTMLInputElement = ev.target
 		const files = target.files
@@ -200,7 +211,8 @@
 						<a on:click={()=>check_admin()} href="javascript:void 0">turn on admin mode?</a>
 					{:else}
 						<a on:click={restart} href="javascript:void 0">restart</a> |
-						<a on:click={stop} href="javascript:void 0">stop</a>
+						<a on:click={stop} href="javascript:void 0">stop</a> |
+						<a on:click={kill} href="javascript:void 0">kill</a>
 					{/if}
 				</Alert>
 			</Col>

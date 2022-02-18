@@ -345,7 +345,7 @@ impl MinecraftServer {
 		Ok(self.create_config().await?)
 	}
 
-	pub async fn shutdown_in_place(&self) -> Result<()> {
+	async fn shutdown(&self, soft: bool) -> Result<()> {
 		debug!("stopping server");
 		let mut sin = self.stdin.write().await;
 		trace!("taking stdin");
@@ -378,10 +378,22 @@ impl MinecraftServer {
 		}
 
 		if let Some(mut process) = self.process.lock().await.take() {
-			process.wait().await?;
-			process.kill().await?;
+			if soft {
+				process.wait().await?;
+				process.kill().await?;
+			} else {
+				process.kill().await?;
+			}
 		}
 		Ok(())
+	}
+
+	pub async fn kill(&self) -> Result<()> {
+		self.shutdown(false).await
+	}
+
+	pub async fn shutdown_in_place(&self) -> Result<()> {
+		self.shutdown(true).await
 	}
 
 	pub async fn stop(mut self) -> Result<Minecraft> {

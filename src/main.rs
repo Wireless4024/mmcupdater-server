@@ -74,6 +74,7 @@ async fn main() -> Result<()> {
 	let mut app = Router::new()
 		.route("/config.json", get(config))
 		.route("/stop", get(shutdown))
+		.route("/kill", get(kill))
 		.route("/status", get(status))
 		.route("/restart", get(restart))
 		.route("/update", post(update))
@@ -154,6 +155,13 @@ async fn get_web_file(uri: Uri) -> Result<Response<BoxBody>, (StatusCode, String
 async fn shutdown(_: Protected) -> impl IntoResponse {
 	let mut server = MCSERVER.get().unwrap().read().await;
 	server.shutdown_in_place().await.ok();
+	//std::process::exit(0);
+	"Ok"
+}
+
+async fn kill(_: Protected) -> impl IntoResponse {
+	let mut server = MCSERVER.get().unwrap().read().await;
+	server.kill().await.ok();
 	//std::process::exit(0);
 	"Ok"
 }
