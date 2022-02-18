@@ -93,7 +93,13 @@ async fn main() -> Result<()> {
 		Result::<()>::Ok(())
 	});
 
-	let addr = SocketAddr::from(([0, 0, 0, 0], 4776));
+	let defaut_addr = SocketAddr::from(([0, 0, 0, 0], 8888));
+
+	let addr = if let Ok(listen) = std::env::var("http_listen") {
+		listen.parse().unwrap_or(defaut_addr)
+	} else {
+		defaut_addr
+	};
 	axum::Server::bind(&addr)
 		.serve(app.into_make_service())
 		.await

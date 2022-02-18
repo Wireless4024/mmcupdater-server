@@ -1,6 +1,8 @@
 # Minecraft MultiMC-pack updater server
 this is server side implementation for [mmcupdater](https://github.com/Wireless4024/mmcupdater)
 
+> It may need rust nightly to build (not sure)
+
 ## How it work?
 1. Load config from [default_server.json](default_server.json)
 2. Wait for trigger at [/restart](#restart)
@@ -27,7 +29,7 @@ this is server side implementation for [mmcupdater](https://github.com/Wireless4
 }
 ```
 ```shell
-# $host is host to server (default is localhost:4776) config are coming soon
+# $host is host to server (default is localhost:8888) config are coming soon
 # $auth will automatic generate at .env
 
 # restart
