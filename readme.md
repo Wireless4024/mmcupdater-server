@@ -89,7 +89,7 @@ curl 'http://$HOST/update' -v -F 'file=@path/to/jar'
 ## Build
 Requirement:
 + cargo and rustup
-+ node and npm (if you need ui)
++ node and npm (if you need ui, download from latest release should be ok)
 > if your machine is weak please edit last section of [Cargo.toml](Cargo.toml) to this
 > (it will make build process faster)
 > ```toml
@@ -99,6 +99,7 @@ Requirement:
 >  ```
 ```shell
 ./build please
+# after build finish, you only need `dist` folder to use
 ```
 or if you only want to run and test it
 ```shell
