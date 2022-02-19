@@ -14,14 +14,14 @@ use axum::body::{Body, BoxBody, boxed};
 use axum::extract::{FromRequest, RequestParts};
 use axum::http::{HeaderMap, Request, Response, StatusCode, Uri};
 use axum::response::IntoResponse;
-use axum::routing::{get, post};
+use axum::routing::{delete, get, put, post};
 use base32::Alphabet;
 use bytes::Buf;
 use futures::{StreamExt, TryStreamExt};
 use futures::future::ok;
 use rand::prelude::*;
-use serde::Serialize;
-use tokio::fs::{create_dir_all, File, OpenOptions, remove_file, rename};
+use serde::{Deserialize, Serialize};
+use tokio::fs::{create_dir_all, File, OpenOptions, remove_dir_all, remove_file, rename};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::{OnceCell, RwLock};
 use tower::util::ServiceExt;
@@ -60,12 +60,12 @@ async fn main() -> Result<()> {
 	if std::env::var_os("auth").is_none() {
 		let mut secret = [0u8; 64];
 		let mut rng = rand::thread_rng();
-		rng.try_fill_bytes(&mut secret);
+		rng.try_fill_bytes(&mut secret)?;
 		let mut secret = hex::encode(secret);
+		std::env::set_var("auth", secret.as_str());
 		secret.reserve_exact(6);
 		secret.insert_str(0, "auth=");
 		secret.push('\n');
-		std::env::set_var("auth", secret.as_str());
 		let mut file = OpenOptions::new().create(true).write(true).append(true).open(".env").await?;
 		file.write_all(secret.as_bytes()).await?;
 		file.shutdown().await?;
@@ -79,6 +79,10 @@ async fn main() -> Result<()> {
 		.route("/restart", get(restart))
 		.route("/update", post(update))
 		.route("/update_cfg", post(update_cfg))
+		.nest("/mc/file", get(get_mc_file))
+		.route("/mc/file", post(list_mc_file))
+		.route("/mc/file", put(update_mc_file))
+		.route("/mc/file", delete(rm_mc_file))
 		.layer(CorsLayer::permissive())
 		.nest("/mods", get(handler));
 	if Path::new("web").exists() {
@@ -141,6 +145,90 @@ async fn get_static_file(uri: Uri) -> Result<Response<BoxBody>, (StatusCode, Str
 	}
 }
 
+async fn get_mc_file(uri: Uri, _: Protected) -> Result<Response<BoxBody>, (StatusCode, String)> {
+	let req = Request::builder().uri(uri).body(Body::empty()).unwrap();
+	// `ServeDir` implements `tower::Service` so we can call it with `tower::ServiceExt::oneshot`
+	let server = MCSERVER.get().unwrap().read().await;
+
+	match ServeDir::new(server.dir("")).oneshot(req).await {
+		Ok(res) => Ok(res.map(boxed)),
+		Err(err) => Err((
+			StatusCode::INTERNAL_SERVER_ERROR,
+			format!("Something went wrong: {}", err),
+		)),
+	}
+}
+
+
+#[derive(Deserialize)]
+struct ListFile {
+	path: String,
+}
+
+async fn list_mc_file(Json(ListFile { path }): Json<ListFile>, _: Protected) -> impl IntoResponse {
+	let mut server = MCSERVER.get().unwrap().read().await;
+	let current = server.list_dir(path.as_str()).await;
+	(StatusCode::OK, Json(current))
+}
+
+async fn update_mc_file(mut multipart: extract::Multipart, _: Protected) -> impl IntoResponse {
+	let mut server = MCSERVER.get().unwrap().read().await;
+	let root = server.dir("").canonicalize().unwrap();
+	drop(server);
+	while let Ok(Some(mut field)) = multipart.next_field().await {
+		let name = field.name().unwrap().trim_start_matches(&['/', '.']);
+		let target = root.join(name);
+		let mut file = if target.exists() {
+			File::create(target).await.unwrap()
+		} else {
+			create_dir_all(target.parent().unwrap()).await.ok();
+			File::create(target).await.unwrap()
+		};
+		let mut reader = field;
+		while let Some(Ok(data)) = reader.next().await {
+			file.write_all(&data).await.ok();
+		};
+		file.flush().await.unwrap();
+		file.shutdown().await.unwrap();
+	}
+	"Ok"
+}
+
+#[derive(Deserialize)]
+struct RemoveFile {
+	#[serde(default)]
+	paths: Vec<String>,
+}
+
+async fn rm_mc_file(Json(RemoveFile { paths }): Json<RemoveFile>, _: Protected) -> (StatusCode, Json<Vec<String>>) {
+	if paths.is_empty() {
+		(StatusCode::PARTIAL_CONTENT, Json(Vec::new()))
+	} else {
+		let mut removed: Vec<String> = Vec::with_capacity(paths.len());
+		let mut server = MCSERVER.get().unwrap().read().await;
+		let root = server.dir("").canonicalize().unwrap();
+		drop(server);
+
+		for file in paths {
+			let target = root.join(file.as_str());
+			println!("{:?}", target);
+			if target.exists() {
+				if target.is_dir() {
+					if let Ok(_) = remove_dir_all(target).await {
+						removed.push(file);
+					};
+				} else {
+					if let Ok(_) = remove_file(target).await {
+						removed.push(file);
+					}
+				}
+			}
+		}
+
+		(StatusCode::OK, Json(removed))
+	}
+}
+
 async fn get_web_file(uri: Uri) -> Result<Response<BoxBody>, (StatusCode, String)> {
 	let req = Request::builder().uri(uri).body(Body::empty()).unwrap();
 	match ServeDir::new("web").oneshot(req).await {
@@ -187,7 +275,7 @@ async fn restart(_: Protected) -> impl IntoResponse {
 	"Ok"
 }
 
-async fn update_cfg(extract::Json(payload): extract::Json<ForgeInfo>, _: Protected) -> impl IntoResponse {
+async fn update_cfg(Json(payload): Json<ForgeInfo>, _: Protected) -> impl IntoResponse {
 	let mut server = MCSERVER.get().unwrap().read().await;
 	update_config(server.update_forge_cfg(payload).await.unwrap()).await;
 	"Ok"

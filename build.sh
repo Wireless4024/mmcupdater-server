@@ -12,8 +12,13 @@ fi
 rustup toolchain install nightly
 cargo +nightly build --release
 
-mkdir dist
-mv target/release/mmcupdater-server dist
+mkdir -p dist/mc
+chmod +x target/release/mmcupdater-server
+cp target/release/mmcupdater-server dist/
+cp .env.default dist/.env
+cp default_server.json dist/
+
+cp mc/{config.json,start.sh,user_jvm_args.txt} dist/mc
 
 echo npm version
 npm -version

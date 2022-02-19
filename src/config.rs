@@ -11,7 +11,7 @@ use futures::AsyncReadExt;
 use futures::future::join_all;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
-use tokio::fs::File;
+use tokio::fs::{File, read_dir};
 use tokio::io::{AsyncBufReadExt, AsyncReadExt as OtherAsyncReadExt, AsyncWriteExt, BufReader, BufWriter, Lines};
 use tokio::process::{Child, ChildStdin, ChildStdout, Command};
 use tokio::spawn;
@@ -93,34 +93,6 @@ impl Minecraft {
 		Some(serde_json::from_str(&str).ok()?)
 	}
 
-	pub fn download_dir(&self) -> PathBuf {
-		let dir = self.dir("downloads");
-		if !dir.exists() {
-			create_dir_all(&dir).ok();
-		}
-		dir
-	}
-
-	pub async fn update_config(&self) -> Result<MinecraftServerConfig> {
-		/*let recent = self.create_config().await?;
-
-		match self.current_config().await {
-			Some(current) => {
-				let (to_add, to_remove) = current.diff_mod(&recent);
-				println!("ADD {:?}", to_add);
-				println!("REMOVE {:?}", to_remove);
-			}
-			None => {
-				let  mut file = self.current_config_file().await?;
-				let  json = serde_json::to_string(&recent)?;
-				file.write_all(json.as_bytes()).await?;
-				file.shutdown().await?;
-			}
-		};
-*/
-		todo!()
-	}
-
 	pub(crate) async fn spawn(&self) -> Result<Child> {
 		debug!("Spawning server");
 		let mut cmd = Command::new(self.dir(self.script.as_str()).canonicalize()?);
@@ -181,6 +153,62 @@ impl Minecraft {
 	pub async fn start(self) -> Result<MinecraftServer> {
 		let process = self.spawn().await?;
 		Ok(MinecraftServer::new(self, Some(process))?)
+	}
+
+	pub fn get_path(&self, path: &str) -> Option<PathBuf> {
+		let mut path = path.trim_start_matches(&['/', '.']);
+		let current = self.dir("").canonicalize().ok()?;
+		let lookup = current.join(path).canonicalize().ok()?;
+		Some(current.join(lookup.strip_prefix(&current).ok()?))
+	}
+
+	pub fn get_dir(&self, path: &str) -> Option<PathBuf> {
+		return match self.get_path(path) {
+			None => None,
+			Some(path) => {
+				if path.is_file() {
+					Some(path.parent()?.to_path_buf())
+				} else if path.exists() {
+					Some(path)
+				} else {
+					None
+				}
+			}
+		};
+	}
+
+	pub async fn list_dir(&self, path: &str) -> Vec<String> {
+		let mut paths = Vec::new();
+
+		let dir = match self.get_dir(path) {
+			None => {
+				return paths;
+			}
+			Some(dir) => {
+				dir
+			}
+		};
+		let current = if let Ok(path) = self.dir("").canonicalize() {
+			path
+		} else {
+			return paths;
+		};
+
+		let mut files = read_dir(dir).await.unwrap();
+		while let Ok(Some(entry)) = files.next_entry().await {
+			let p = entry.path();
+			let is_dir = p.is_dir();
+			if let Ok(path) = p.strip_prefix(&current) {
+				let mut p = path.to_string_lossy().to_string();
+				if is_dir {
+					p.reserve_exact(1);
+					p.push('/');
+				}
+				paths.push(p);
+			}
+		}
+
+		paths
 	}
 
 	pub fn build(self) -> Result<MinecraftServer> {

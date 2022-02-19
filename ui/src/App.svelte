@@ -13,6 +13,7 @@
 		TabContent,
 		TabPane
 	}                           from "sveltestrap";
+	import FileManager          from "./FileManager.svelte";
 
 	let server_status = 'UNKNOWN'
 	let status_color: string
@@ -73,7 +74,7 @@
 				if (resp.ok) {
 					localStorage.setItem("auth_code", auth_code)
 					return true
-				}else{
+				} else {
 					localStorage.removeItem("auth_code")
 					auth_code = ''
 					return false
@@ -197,6 +198,8 @@
 		})
 		await loadConfig()
 	}
+
+	let load_fm = false
 </script>
 <svelte:head>
 	<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.0/dist/css/bootstrap.min.css">
@@ -208,11 +211,11 @@
 				<Alert color={status_color}>
 					Server status : {server_status} |
 					{#if !admin_mode}
-						<a on:click={()=>check_admin()} href="javascript:void 0">turn on admin mode?</a>
+						<a on:click={()=>check_admin()} href={"javascript:void 0"}>turn on admin mode?</a>
 					{:else}
-						<a on:click={restart} href="javascript:void 0">restart</a> |
-						<a on:click={stop} href="javascript:void 0">stop</a> |
-						<a on:click={kill} href="javascript:void 0">kill</a>
+						<a on:click={restart} href={ "javascript:void 0"}>restart</a> |
+						<a on:click={stop} href={"javascript:void 0"}>stop</a> |
+						<a on:click={kill} href={"javascript:void 0"}>kill</a>
 					{/if}
 				</Alert>
 			</Col>
@@ -282,7 +285,14 @@
 					</FormGroup>
 					<Button on:click={update_forge}>Save</Button>
 				</TabPane>
-
+				<TabPane tabId="file_manager" tab="File Manager">
+					<h2>File Manager</h2>
+					{#if load_fm}
+						<FileManager {SERVER_URL} {auth_code}/>
+					{:else}
+						<Button on:click={()=>load_fm=true}>Click to load file manager</Button>
+					{/if}
+				</TabPane>
 			{/if}
 		</TabContent>
 	</Container>
