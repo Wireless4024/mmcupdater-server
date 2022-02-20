@@ -7,7 +7,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::Result;
-use futures::StreamExt;
+use futures::{StreamExt, TryFutureExt};
 use futures::future::join_all;
 use serde::{Deserialize, Serialize};
 use tokio::fs::{File, read_dir};
@@ -83,8 +83,8 @@ impl Minecraft {
 	}
 
 	pub async fn zip_config(&self) -> Result<()> {
-		let  mut content_handler = self.config_zip.write().await;
-		let mut zip_content:Vec<u8> = std::mem::take(content_handler.as_mut());
+		let mut content_handler = self.config_zip.write().await;
+		let mut zip_content: Vec<u8> = std::mem::take(content_handler.as_mut());
 
 		let mut out_zip = ZipWriter::new(std::io::Cursor::new(&mut zip_content));
 		let option = FileOptions::default()
@@ -328,32 +328,62 @@ impl MinecraftServer {
 	fn create_heartbeat(&self, stdout: ChildStdout, status: Arc<RwLock<MinecraftServerStatus>>, process_clone: Arc<Mutex<Option<Child>>>) {
 		trace!("spawning heartbeat task");
 		tokio::spawn(async move {
-			{
+			let pid = {
 				*status.write().await = MinecraftServerStatus::STARTING;
-			}
+				let process = process_clone.lock().await;
+				process.as_ref().map(|it| it.id()).unwrap_or_default().unwrap_or_default()
+			};
 			trace!("starting heartbeat");
 			let mut stdout = BufReader::new(stdout).lines();
 			trace!("waiting for output");
 
-			while let Ok(Some(line)) = stdout.next_line().await {
-				if line.contains(r#"For help, type "help""#) {
-					info!("found help message; server started!");
-					let mut s = status.write().await;
-					*s = MinecraftServerStatus::RUNNING;
-					break;
+			let mut early_exit = false;
+
+			loop {
+				if let Ok(res) = timeout(Duration::from_secs(30), stdout.next_line()).await {
+					if let Ok(Some(line)) = res {
+						if line.contains(r#"For help, type "help""#) {
+							info!("found help message; server started!");
+							let mut s = status.write().await;
+							if *s == STOPPED {
+								early_exit = true;
+								break;
+							}
+							*s = MinecraftServerStatus::RUNNING;
+							break;
+						}
+					} else {
+						break;
+					}
 				}
 			}
 
-			debug!("reading output in background");
-			while let Ok(Some(_)) = stdout.next_line().await {
-				sleep(Duration::from_millis(20)).await;
+			if !early_exit {
+				debug!("reading output in background");
+				loop {
+					if let Ok(res) = timeout(Duration::from_secs(30), stdout.next_line()).await {
+						if let Ok(Some(_)) = res {} else {
+							break;
+						}
+						sleep(Duration::from_millis(20)).await;
+					}
+				}
 			}
 
 			debug!("Output stopped checking status");
 			sleep(Duration::from_secs(1)).await;
-
+			{
+				if *status.read().await == STOPPED {
+					return Result::<()>::Ok(());
+				};
+			}
 			let mut process = process_clone.lock().await;
 			if let Some(ref mut process) = *process {
+				if let Some(id) = process.id() {
+					if id != pid {
+						return Result::<()>::Ok(());
+					}
+				}
 				if let Ok(Ok(estatus)) = timeout(Duration::from_secs(2), process.wait()).await {
 					let mut s = status.write().await;
 					if estatus.success() {
@@ -365,7 +395,7 @@ impl MinecraftServer {
 				}
 			}
 
-			()
+			Result::<()>::Ok(())
 		});
 	}
 
@@ -447,7 +477,7 @@ impl MinecraftServer {
 		drop(sin);
 		let status = self.status().await;
 
-		if let Some(mut stdin) = stdin {
+		if let (Some(mut stdin), true) = (stdin, soft) {
 			if status == RUNNING || status == STARTING {
 				debug!("Server is running! stop event will wait for 15 seconds");
 				stdin.write_all("say Server will stop within 15 seconds\n".as_bytes()).await?;
@@ -468,7 +498,9 @@ impl MinecraftServer {
 			stdin.flush().await?;
 			sleep(Duration::from_secs(1)).await;
 		} else {
-			trace!("can't take stdin!");
+			if soft {
+				trace!("can't take stdin!");
+			}
 		}
 
 		if let Some(mut process) = self.process.lock().await.take() {
@@ -477,6 +509,7 @@ impl MinecraftServer {
 				process.kill().await?;
 			} else {
 				process.kill().await?;
+				*self.status.write().await = STOPPED;
 			}
 		}
 		Ok(())
