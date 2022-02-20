@@ -1,6 +1,8 @@
 use std::collections::HashMap;
+
+use serde::{Deserialize, Serialize};
+
 use crate::minecraft_mod::MinecraftMod;
-use serde::{Serialize, Deserialize};
 use crate::MinecraftServer;
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -21,14 +23,15 @@ impl MinecraftServerConfig {
 
 		to_add.retain(|it| {
 			if let Some(m) = existing.get(it.name.as_str()) {
-				existing.remove(m.name.as_str());
+				let name_str = m.name.as_str();
+				existing.remove(name_str);
 				false
 			} else {
 				true
 			}
 		});
 
-		(to_add, existing.into_values().map(|it|it.clone()).collect())
+		(to_add, existing.into_values().map(|it| it.clone()).collect())
 	}
 }
 

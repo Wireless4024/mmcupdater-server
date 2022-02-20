@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::fs::create_dir_all;
 use std::io::Write;
 use std::ops::Deref;
 use std::path::{Path, PathBuf};
@@ -8,11 +7,10 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::Result;
-use futures::{AsyncReadExt as FutAsyncReadExt, AsyncWriteExt as FutAsyncWriteExt, StreamExt};
+use futures::StreamExt;
 use futures::future::join_all;
-use regex::Regex;
 use serde::{Deserialize, Serialize};
-use tokio::fs::{DirEntry, File, read_dir};
+use tokio::fs::{File, read_dir};
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader, BufWriter, Lines};
 use tokio::process::{Child, ChildStdin, ChildStdout, Command};
 use tokio::spawn;
@@ -95,7 +93,7 @@ impl Minecraft {
 			.unix_permissions(0755);
 
 		use futures::future;
-		let mut configs = scan_recursive(self.dir("config"));
+		let configs = scan_recursive(self.dir("config"));
 		let files: Vec<PathBuf> = configs
 			.then(|ent| { future::ready(ent.ok().map(|it| it.path())) })
 			.filter(|it| future::ready(it.is_some()))
@@ -224,7 +222,7 @@ impl Minecraft {
 	}
 
 	pub fn get_path(&self, path: &str) -> Option<PathBuf> {
-		let mut path = path.trim_start_matches(&['/', '.']);
+		let path = path.trim_start_matches(&['/', '.']);
 		let current = self.dir("").canonicalize().ok()?;
 		let lookup = current.join(path).canonicalize().ok()?;
 		Some(current.join(lookup.strip_prefix(&current).ok()?))
@@ -308,15 +306,15 @@ impl Deref for MinecraftServer {
 }
 
 impl MinecraftServer {
-	pub fn new(cfg: Minecraft, mut process: Option<Child>) -> Result<Self> {
+	pub fn new(cfg: Minecraft, process: Option<Child>) -> Result<Self> {
 		if let Some(mut process) = process {
 			let stdout = process.stdout.take().unwrap();
 			let stdin = BufWriter::new(process.stdin.take().unwrap());
 			let status = Arc::new(RwLock::new(MinecraftServerStatus::STARTING));
 			let status_clone = status.clone();
 
-			let mut process = Arc::new(Mutex::new(Some(process)));
-			let mut process_clone = process.clone();
+			let process = Arc::new(Mutex::new(Some(process)));
+			let process_clone = process.clone();
 
 			trace!("starting server");
 			let this = Self { cfg, process, stdin: RwLock::new(Some(stdin)), status };
@@ -327,7 +325,7 @@ impl MinecraftServer {
 		}
 	}
 
-	fn create_heartbeat(&self, mut stdout: ChildStdout, status: Arc<RwLock<MinecraftServerStatus>>, process_clone: Arc<Mutex<Option<Child>>>) {
+	fn create_heartbeat(&self, stdout: ChildStdout, status: Arc<RwLock<MinecraftServerStatus>>, process_clone: Arc<Mutex<Option<Child>>>) {
 		trace!("spawning heartbeat task");
 		tokio::spawn(async move {
 			{
@@ -445,7 +443,7 @@ impl MinecraftServer {
 		debug!("stopping server");
 		let mut sin = self.stdin.write().await;
 		trace!("taking stdin");
-		let mut stdin = sin.take();
+		let stdin = sin.take();
 		drop(sin);
 		let status = self.status().await;
 
@@ -492,7 +490,7 @@ impl MinecraftServer {
 		self.shutdown(true).await
 	}
 
-	pub async fn stop(mut self) -> Result<Minecraft> {
+	pub async fn stop(self) -> Result<Minecraft> {
 		debug!("Sending stop command to server");
 		self.shutdown_in_place().await?;
 		info!("Server stopped");

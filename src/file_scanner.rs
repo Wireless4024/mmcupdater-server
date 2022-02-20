@@ -11,7 +11,6 @@ use regex::internal::Input;
 use regex::Regex;
 use tokio::{fs, io};
 use tokio::fs::{DirEntry, File, read_dir};
-use tokio::io::AsyncReadExt;
 use tokio::sync::RwLock;
 use tokio::task::spawn_local;
 
@@ -36,7 +35,7 @@ pub async fn scan_files<F>(path: impl AsRef<Path>, filter: F) -> Result<Vec<Path
 
 
 // stolen from https://stackoverflow.com/a/58825638
-pub fn scan_recursive(path: impl Into<PathBuf>) -> impl Stream<Item = io::Result<DirEntry>> + Send + 'static {
+pub fn scan_recursive(path: impl Into<PathBuf>) -> impl Stream<Item=io::Result<DirEntry>> + Send + 'static {
 	async fn one_level(path: PathBuf, to_visit: &mut Vec<PathBuf>) -> io::Result<Vec<DirEntry>> {
 		let mut dir = fs::read_dir(path).await?;
 		let mut files = Vec::new();

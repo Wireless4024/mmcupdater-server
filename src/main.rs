@@ -1,25 +1,21 @@
 #![feature(str_split_as_str)]
+#![forbid(unsafe_code)]
 
 extern crate core;
 
 use std::{env};
 use std::net::SocketAddr;
-use std::ops::Deref;
-use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::path::{Path};
 
 use anyhow::Result;
 use axum::{async_trait, extract, Json, Router};
 use axum::body::{Body, BoxBody, boxed};
 use axum::extract::{FromRequest, RequestParts};
 use axum::http::{HeaderMap, HeaderValue, Request, Response, StatusCode, Uri};
-use axum::http::header::{CONTENT_TYPE, HeaderName};
+use axum::http::header::{CONTENT_TYPE};
 use axum::response::IntoResponse;
 use axum::routing::{delete, get, put, post};
-use base32::Alphabet;
-use bytes::Buf;
 use futures::{StreamExt};
-use futures::future::ok;
 use rand::prelude::*;
 use serde::{Deserialize, Serialize};
 use tokio::fs::{create_dir_all, File, OpenOptions, remove_dir_all, remove_file, rename};
@@ -29,9 +25,8 @@ use tower::util::ServiceExt;
 use tower_http::cors::CorsLayer;
 use tower_http::services::ServeDir;
 use tracing::{debug, info, warn};
-use tracing::field::debug;
 
-use crate::config::{Config, Minecraft, MinecraftServer};
+use crate::config::{Config, MinecraftServer};
 use crate::config::MinecraftServerStatus::{RUNNING, STOPPED};
 use crate::jar_scanner::get_manifest;
 use crate::minecraft_mod::MinecraftMod;
@@ -149,8 +144,7 @@ async fn config_dir() -> impl IntoResponse {
 }
 
 async fn handler(uri: Uri) -> Result<Response<BoxBody>, (StatusCode, String)> {
-	let res = get_static_file(uri.clone()).await?;
-	Ok(res)
+	Ok(get_static_file(uri.clone()).await?)
 }
 
 async fn get_static_file(uri: Uri) -> Result<Response<BoxBody>, (StatusCode, String)> {
@@ -188,16 +182,16 @@ struct ListFile {
 }
 
 async fn list_mc_file(Json(ListFile { path }): Json<ListFile>, _: Protected) -> impl IntoResponse {
-	let mut server = MCSERVER.get().unwrap().read().await;
+	let server = MCSERVER.get().unwrap().read().await;
 	let current = server.list_dir(path.as_str()).await;
 	(StatusCode::OK, Json(current))
 }
 
 async fn update_mc_file(mut multipart: extract::Multipart, _: Protected) -> impl IntoResponse {
-	let mut server = MCSERVER.get().unwrap().read().await;
+	let server = MCSERVER.get().unwrap().read().await;
 	let root = server.dir("").canonicalize().unwrap();
 	drop(server);
-	while let Ok(Some(mut field)) = multipart.next_field().await {
+	while let Ok(Some(field)) = multipart.next_field().await {
 		let name = field.name().unwrap().trim_start_matches(&['/', '.']);
 		let target = root.join(name);
 		let mut file = if target.exists() {
@@ -227,7 +221,7 @@ async fn rm_mc_file(Json(RemoveFile { paths }): Json<RemoveFile>, _: Protected) 
 		(StatusCode::PARTIAL_CONTENT, Json(Vec::new()))
 	} else {
 		let mut removed: Vec<String> = Vec::with_capacity(paths.len());
-		let mut server = MCSERVER.get().unwrap().read().await;
+		let server = MCSERVER.get().unwrap().read().await;
 		let root = server.dir("").canonicalize().unwrap();
 		drop(server);
 
@@ -263,14 +257,14 @@ async fn get_web_file(uri: Uri) -> Result<Response<BoxBody>, (StatusCode, String
 }
 
 async fn shutdown(_: Protected) -> impl IntoResponse {
-	let mut server = MCSERVER.get().unwrap().read().await;
+	let server = MCSERVER.get().unwrap().read().await;
 	server.shutdown_in_place().await.ok();
 	//std::process::exit(0);
 	"Ok"
 }
 
 async fn kill(_: Protected) -> impl IntoResponse {
-	let mut server = MCSERVER.get().unwrap().read().await;
+	let server = MCSERVER.get().unwrap().read().await;
 	server.kill().await.ok();
 	//std::process::exit(0);
 	"Ok"
@@ -284,8 +278,10 @@ async fn update_config(config: MinecraftServerConfig) {
 }
 
 async fn restart_server() -> Result<()> {
-	let mut server = MCSERVER.get().unwrap().read().await;
-	update_config(server.create_config().await?).await;
+	let server = MCSERVER.get().unwrap().read().await;
+	if let Ok(config) = server.create_config().await {
+		update_config(config).await;
+	}
 
 	debug!("restarting server");
 	server.restart_in_place().await.unwrap();
@@ -298,7 +294,7 @@ async fn restart(_: Protected) -> impl IntoResponse {
 }
 
 async fn update_cfg(Json(payload): Json<ForgeInfo>, _: Protected) -> impl IntoResponse {
-	let mut server = MCSERVER.get().unwrap().read().await;
+	let server = MCSERVER.get().unwrap().read().await;
 	update_config(server.update_forge_cfg(payload).await.unwrap()).await;
 	"Ok"
 }
@@ -309,7 +305,7 @@ async fn status() -> impl IntoResponse {
 }
 
 async fn update(mut multipart: extract::Multipart, _: Protected) -> impl IntoResponse {
-	while let Ok(Some(mut field)) = multipart.next_field().await {
+	while let Ok(Some(field)) = multipart.next_field().await {
 		let name = field.name().unwrap();
 		if let "file" = name {
 			let filename = field.file_name().and_then(|it| it.split("/").last()).map(|it| it.to_string());
