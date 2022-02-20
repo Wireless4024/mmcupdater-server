@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::fs::create_dir_all;
+use std::io::Write;
 use std::ops::Deref;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
@@ -7,23 +8,25 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::Result;
-use futures::AsyncReadExt;
+use futures::{AsyncReadExt as FutAsyncReadExt, AsyncWriteExt as FutAsyncWriteExt, StreamExt};
 use futures::future::join_all;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
-use tokio::fs::{File, read_dir};
-use tokio::io::{AsyncBufReadExt, AsyncReadExt as OtherAsyncReadExt, AsyncWriteExt, BufReader, BufWriter, Lines};
+use tokio::fs::{DirEntry, File, read_dir};
+use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader, BufWriter, Lines};
 use tokio::process::{Child, ChildStdin, ChildStdout, Command};
 use tokio::spawn;
 use tokio::sync::{Mutex, RwLock, RwLockWriteGuard};
-use tokio::task::JoinHandle;
+use tokio::task::{block_in_place, JoinHandle};
 use tokio::time::{sleep, timeout};
 use tracing::{debug, info, trace, warn};
 use tracing::field::debug;
+use zip::{CompressionMethod, ZipWriter};
+use zip::write::FileOptions;
 
 use crate::{config, RUNNING, status};
 use crate::config::MinecraftServerStatus::{CRASHED, STARTING, STOPPED};
-use crate::file_scanner::scan_files_exclude;
+use crate::file_scanner::{scan_files, scan_files_exclude, scan_recursive};
 use crate::minecraft_mod::MinecraftMod;
 use crate::schema::{ForgeInfo, MinecraftServerConfig};
 
@@ -39,6 +42,7 @@ impl Default for Config {
 				script: String::from("start.sh"),
 				java: None,
 				directory: String::from("mc"),
+				config_zip: RwLock::new(Vec::new()),
 				folders: vec![String::from("mods")],
 				exclude: String::from(".+\\.(bak|old)$"),
 			}
@@ -51,6 +55,8 @@ pub struct Minecraft {
 	pub script: String,
 	pub java: Option<String>,
 	pub directory: String,
+	#[serde(skip)]
+	pub config_zip: RwLock<Vec<u8>>,
 	pub(crate) folders: Vec<String>,
 	pub(crate) exclude: String,
 }
@@ -76,6 +82,65 @@ impl Minecraft {
 		                            .filter(|it| it.is_ok() && it.as_ref().unwrap().is_ok())
 		                            .map(|it| it.unwrap().unwrap()).collect();
 		Ok(f)
+	}
+
+	pub async fn zip_config(&self) -> Result<()> {
+		let  mut content_handler = self.config_zip.write().await;
+		let mut zip_content:Vec<u8> = std::mem::take(content_handler.as_mut());
+
+		let mut out_zip = ZipWriter::new(std::io::Cursor::new(&mut zip_content));
+		let option = FileOptions::default()
+			.compression_method(CompressionMethod::Deflated)
+			.large_file(false)
+			.unix_permissions(0755);
+
+		use futures::future;
+		let mut configs = scan_recursive(self.dir("config"));
+		let files: Vec<PathBuf> = configs
+			.then(|ent| { future::ready(ent.ok().map(|it| it.path())) })
+			.filter(|it| future::ready(it.is_some()))
+			.map(|it| it.unwrap())
+			.collect().await; // too complex to read if I continue to use stream
+
+		let mut buffer = [0u8; 8192];
+		let parent = self.dir("");
+		for file in files {
+			block_in_place(|| {
+				Result::<()>::Ok(out_zip.start_file(file.strip_prefix(&parent)?.to_string_lossy(), option.clone())?)
+			})?;
+			let mut file_content = File::open(file).await?;
+			while let Ok(read) = file_content.read(&mut buffer).await {
+				match read {
+					0 => {
+						break;
+					}
+					n => {
+						block_in_place(|| {
+							out_zip.write_all(&buffer[..n])
+						})?;
+					}
+				}
+			}
+		}
+		block_in_place(|| {
+			out_zip.finish()
+		})?;
+		drop(out_zip);
+		zip_content.truncate(zip_content.len());
+		*content_handler = zip_content;
+
+		Ok(())
+	}
+
+	pub async fn get_config_zip(&self) -> Result<Vec<u8>> {
+		let content = self.config_zip.read().await;
+		if content.is_empty() {
+			drop(content);
+			self.zip_config().await?;
+			Ok(Vec::clone(&*self.config_zip.read().await))
+		} else {
+			Ok(Vec::clone(&*content))
+		}
 	}
 
 	pub async fn current_config_file(&self) -> Result<File> {
@@ -129,6 +194,9 @@ impl Minecraft {
 	}
 
 	async fn scan_existing_mod(&self, mut config: MinecraftServerConfig) -> Result<MinecraftServerConfig> {
+		let mut cfg = self.config_zip.write().await;
+		cfg.clear();
+		drop(cfg);
 		let mut mod_table = HashMap::<String, MinecraftMod>::new();
 		for mc_mod in std::mem::take(&mut config.mods).into_iter() {
 			mod_table.insert(mc_mod.name.to_string(), mc_mod);

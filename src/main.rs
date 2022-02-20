@@ -2,7 +2,7 @@
 
 extern crate core;
 
-use std::io::{Bytes, Write};
+use std::{env};
 use std::net::SocketAddr;
 use std::ops::Deref;
 use std::path::{Path, PathBuf};
@@ -12,12 +12,13 @@ use anyhow::Result;
 use axum::{async_trait, extract, Json, Router};
 use axum::body::{Body, BoxBody, boxed};
 use axum::extract::{FromRequest, RequestParts};
-use axum::http::{HeaderMap, Request, Response, StatusCode, Uri};
+use axum::http::{HeaderMap, HeaderValue, Request, Response, StatusCode, Uri};
+use axum::http::header::{CONTENT_TYPE, HeaderName};
 use axum::response::IntoResponse;
 use axum::routing::{delete, get, put, post};
 use base32::Alphabet;
 use bytes::Buf;
-use futures::{StreamExt, TryStreamExt};
+use futures::{StreamExt};
 use futures::future::ok;
 use rand::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -71,8 +72,7 @@ async fn main() -> Result<()> {
 		file.shutdown().await?;
 	}
 	tracing_subscriber::fmt::init();
-	let mut app = Router::new()
-		.route("/config.json", get(config))
+	let app = Router::new()
 		.route("/stop", get(shutdown))
 		.route("/kill", get(kill))
 		.route("/status", get(status))
@@ -83,8 +83,21 @@ async fn main() -> Result<()> {
 		.route("/mc/file", post(list_mc_file))
 		.route("/mc/file", put(update_mc_file))
 		.route("/mc/file", delete(rm_mc_file))
-		.layer(CorsLayer::permissive())
-		.nest("/mods", get(handler));
+		.layer(CorsLayer::permissive());
+	let mut app = app
+		.nest("/mods", get(handler))
+		.route("/config.json", get(config));
+
+	if let Ok(mut serve) = env::var("serve_config") {
+		serve.make_ascii_lowercase();
+		match serve.as_str() {
+			"y" | "1" | "true" => {
+				app = app.route("/config.zip", get(config_dir));
+			}
+			_ => {}
+		}
+	}
+
 	if Path::new("web").exists() {
 		info!("found web folder adding route to it");
 		app = app.nest("/web", get(get_web_file))
@@ -101,7 +114,7 @@ async fn main() -> Result<()> {
 
 		SERVER_CONFIG.set(RwLock::new(config)).ok();
 		info!("Building minecraft instance");
-		let mut server = cfg.minecraft.build().unwrap();
+		let server = cfg.minecraft.build().unwrap();
 		MCSERVER.set(RwLock::new(server)).ok();
 
 		Result::<()>::Ok(())
@@ -124,6 +137,15 @@ async fn main() -> Result<()> {
 
 async fn config() -> impl IntoResponse {
 	(StatusCode::OK, Json((*get_server().await.read().await).clone()))
+}
+
+async fn config_dir() -> impl IntoResponse {
+	let server = MCSERVER.get().unwrap().read().await;
+
+	let data = server.get_config_zip().await.unwrap();
+	let mut headers = HeaderMap::new();
+	headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/zip"));
+	(StatusCode::OK, headers, data)
 }
 
 async fn handler(uri: Uri) -> Result<Response<BoxBody>, (StatusCode, String)> {
