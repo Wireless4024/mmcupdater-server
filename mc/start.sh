@@ -20,12 +20,13 @@ current_version=`echo $( < version)`
 
 ver="${forge_installer_file::-14}"
 ver="${ver#forge-}"
-if [ ! -f "forge_installer_file" ]; then
+if [ ! -f "$forge_installer_file" ]; then
     curl -O -L "https://maven.minecraftforge.net/net/minecraftforge/forge/$ver/$forge_installer_file"
 fi
 
 if [[ "$current_version" != "$forge_installer_file" ]]; then
     $java -jar $forge_installer_file --installServer
+    echo "$forge_installer_file" > version
 fi
 
 script_file="libraries/net/minecraftforge/forge/$ver/unix_args.txt"
