@@ -321,7 +321,12 @@ impl MinecraftServer {
 			this.create_heartbeat(stdout, status_clone, process_clone);
 			Ok(this)
 		} else {
-			Ok(Self { cfg, process: Arc::new(Mutex::new(None)), stdin: RwLock::new(None), status: Arc::new(RwLock::new(MinecraftServerStatus::STOPPED)) })
+			Ok(Self {
+				cfg,
+				process: Arc::new(Mutex::new(None)),
+				stdin: RwLock::new(None),
+				status: Arc::new(RwLock::new(MinecraftServerStatus::STOPPED)),
+			})
 		}
 	}
 
@@ -384,17 +389,29 @@ impl MinecraftServer {
 						return Result::<()>::Ok(());
 					}
 				}
-				if let Ok(Ok(estatus)) = timeout(Duration::from_secs(2), process.wait()).await {
-					let mut s = status.write().await;
-					if estatus.success() {
-						*s = MinecraftServerStatus::STOPPED;
-					} else {
-						warn!("Server crashed!");
-						*s = MinecraftServerStatus::CRASHED;
-					}
-				}
 			}
-
+			drop(process);
+			loop {
+				let mut process = process_clone.lock().await;
+				debug!("Waiting process to exit");
+				if let Some(ref mut process) = *process {
+					if let Ok(Some(estatus)) = process.try_wait() {
+						let mut s = status.write().await;
+						if estatus.success() {
+							*s = MinecraftServerStatus::STOPPED;
+						} else {
+							warn!("Server crashed!");
+							*s = MinecraftServerStatus::CRASHED;
+						}
+						break;
+					}
+				} else { // process is taken by stop/kill function
+					break;
+				}
+				drop(process);
+				sleep(Duration::from_secs(2)).await;
+			}
+			debug!("Killing heartbeat thread..");
 			Result::<()>::Ok(())
 		});
 	}
@@ -505,7 +522,15 @@ impl MinecraftServer {
 
 		if let Some(mut process) = self.process.lock().await.take() {
 			if soft {
-				process.wait().await?;
+				if let Ok(estatus) = process.wait().await {
+					let mut s = self.status.write().await;
+					if estatus.success() {
+						*s = MinecraftServerStatus::STOPPED;
+					} else {
+						warn!("Server crashed!");
+						*s = MinecraftServerStatus::CRASHED;
+					}
+				};
 				process.kill().await?;
 			} else {
 				process.kill().await?;
