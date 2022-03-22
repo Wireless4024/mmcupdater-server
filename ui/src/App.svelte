@@ -185,6 +185,7 @@
 	let version_manager = {
 		mc_version   : "",
 		forge_version: "",
+		identifier   : ""
 	}
 
 	async function update_forge() {
@@ -282,6 +283,10 @@
 					<FormGroup>
 						<Label for="forge_version" required>Forge version</Label>
 						<Input bind:value={version_manager.forge_version}/>
+					</FormGroup>
+					<FormGroup>
+						<Label for="forge_version" required>Identifier</Label>
+						<Input bind:value={version_manager.identifier}/>
 					</FormGroup>
 					<Button on:click={update_forge}>Save</Button>
 				</TabPane>

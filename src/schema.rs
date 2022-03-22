@@ -39,4 +39,6 @@ impl MinecraftServerConfig {
 pub struct ForgeInfo {
 	pub mc_version: String,
 	pub forge_version: String,
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub identifier: Option<String>,
 }
