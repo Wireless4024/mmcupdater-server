@@ -22,6 +22,7 @@ rand = { version = "0", features = [] }
 regex = { version = "1.5" }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+serde_urlencoded = "0.7"
 tokio = { version = "1.16", features = ["rt-multi-thread", "fs", "process", "macros", "sync", "parking_lot", "io-util"] }
 toml = { version = "0.5", features = [] }
 tower = "0.4"

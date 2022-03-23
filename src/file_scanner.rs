@@ -1,5 +1,6 @@
 use std::future;
 use std::path::{Path, PathBuf};
+use std::pin::Pin;
 use std::sync::Arc;
 
 use anyhow::Result;
@@ -35,7 +36,7 @@ pub async fn scan_files<F>(path: impl AsRef<Path>, filter: F) -> Result<Vec<Path
 
 
 // stolen from https://stackoverflow.com/a/58825638
-pub fn scan_recursive(path: impl Into<PathBuf>) -> impl Stream<Item=io::Result<DirEntry>> + Send + 'static {
+pub fn scan_recursive(path: impl Into<PathBuf>) -> Pin<Box<impl Stream<Item=io::Result<DirEntry>> + Send + 'static>> {
 	async fn one_level(path: PathBuf, to_visit: &mut Vec<PathBuf>) -> io::Result<Vec<DirEntry>> {
 		let mut dir = fs::read_dir(path).await?;
 		let mut files = Vec::new();
@@ -51,7 +52,7 @@ pub fn scan_recursive(path: impl Into<PathBuf>) -> impl Stream<Item=io::Result<D
 		Ok(files)
 	}
 
-	stream::unfold(vec![path.into()], |mut to_visit| {
+	Box::pin(stream::unfold(vec![path.into()], |mut to_visit| {
 		async {
 			let path = to_visit.pop()?;
 			let file_stream = match one_level(path, &mut to_visit).await {
@@ -61,5 +62,5 @@ pub fn scan_recursive(path: impl Into<PathBuf>) -> impl Stream<Item=io::Result<D
 
 			Some((file_stream, to_visit))
 		}
-	}).flatten()
+	}).flatten())
 }

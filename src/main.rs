@@ -3,19 +3,21 @@
 
 extern crate core;
 
-use std::{env};
+use std::env;
+use std::fmt::format;
 use std::net::SocketAddr;
-use std::path::{Path};
+use std::path::Path;
+use std::str::FromStr;
 
 use anyhow::Result;
 use axum::{async_trait, extract, Json, Router};
 use axum::body::{Body, BoxBody, boxed};
-use axum::extract::{FromRequest, RequestParts};
+use axum::extract::{FromRequest, Query, RequestParts};
 use axum::http::{HeaderMap, HeaderValue, Request, Response, StatusCode, Uri};
-use axum::http::header::{CONTENT_TYPE};
+use axum::http::header::CONTENT_TYPE;
 use axum::response::IntoResponse;
-use axum::routing::{delete, get, put, post};
-use futures::{StreamExt};
+use axum::routing::{delete, get, post, put};
+use futures::StreamExt;
 use rand::prelude::*;
 use serde::{Deserialize, Serialize};
 use tokio::fs::{create_dir_all, File, OpenOptions, remove_dir_all, remove_file, rename};
@@ -31,6 +33,7 @@ use crate::config::MinecraftServerStatus::{RUNNING, STOPPED};
 use crate::jar_scanner::get_manifest;
 use crate::minecraft_mod::MinecraftMod;
 use crate::schema::{ForgeInfo, MinecraftServerConfig};
+use crate::util::get_zip_file;
 
 mod config;
 mod file_scanner;
@@ -38,6 +41,7 @@ mod file_info;
 mod schema;
 mod jar_scanner;
 mod minecraft_mod;
+mod util;
 
 static SERVER_CONFIG: OnceCell<RwLock<MinecraftServerConfig>> = OnceCell::const_new();
 static MCSERVER: OnceCell<RwLock<MinecraftServer>> = OnceCell::const_new();
@@ -161,12 +165,26 @@ async fn get_static_file(uri: Uri) -> Result<Response<BoxBody>, (StatusCode, Str
 	}
 }
 
-async fn get_mc_file(uri: Uri, _: Protected) -> Result<Response<BoxBody>, (StatusCode, String)> {
-	let req = Request::builder().uri(uri).body(Body::empty()).unwrap();
-	// `ServeDir` implements `tower::Service` so we can call it with `tower::ServiceExt::oneshot`
-	let server = MCSERVER.get().unwrap().read().await;
+#[derive(Deserialize)]
+struct GetFileQuery {
+	zip: Option<bool>,
+}
 
-	match ServeDir::new(server.dir("")).oneshot(req).await {
+async fn get_mc_file(uri: Uri, _: Protected) -> Result<Response<BoxBody>, (StatusCode, String)> {
+	let mut req = Request::builder().uri(uri.clone()).body(Body::empty()).unwrap();
+	// `ServeDir` implements `tower::Service` so we can call it with `tower::ServiceExt::oneshot`
+
+	let server = MCSERVER.get().unwrap().read().await;
+	let server_dir = server.dir("");
+	drop(server);// free here to prevent write blocking
+	if let Some(Ok(GetFileQuery { zip: Some(true) })) = uri.query().map(|it| serde_urlencoded::from_str::<GetFileQuery>(it)) {
+
+		let zip = get_zip_file(server_dir.join(uri.path().trim_start_matches('/'))).await.unwrap();
+		let zip = zip.strip_prefix(&server_dir).unwrap();
+		req = Request::builder().uri(Uri::from_str(format!("/{}", zip.to_string_lossy()).as_str()).unwrap()).body(Body::empty()).unwrap();
+	}
+
+	match ServeDir::new(server_dir).oneshot(req).await {
 		Ok(res) => Ok(res.map(boxed)),
 		Err(err) => Err((
 			StatusCode::INTERNAL_SERVER_ERROR,
