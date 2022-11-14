@@ -1,8 +1,6 @@
 use std::collections::HashMap;
 use std::fs::File;
-use std::hash::Hash;
 use std::io::{BufRead, BufReader, Lines};
-use std::iter::Map;
 use std::ops::Deref;
 use std::path::Path;
 
@@ -18,9 +16,8 @@ pub async fn get_manifest(file: impl AsRef<Path>) -> Result<JarManifest> {
 		bail!("Failed to open zip");
 	};
 	let entry = zip.by_name("META-INF/MANIFEST.MF")?;
-	let mut reader = BufReader::new(entry);
-	let mut lines = reader.lines();
-	Ok(JarManifest::new(&mut lines)?)
+	let reader = BufReader::new(entry);
+	JarManifest::new(reader.lines())
 }
 
 #[derive(Debug)]
@@ -35,10 +32,10 @@ impl Deref for JarManifest {
 }
 
 impl JarManifest {
-	pub fn new(lines: &mut Lines<BufReader<ZipFile>>) -> Result<Self> {
+	pub fn new(mut lines: Lines<BufReader<ZipFile>>) -> Result<Self> {
 		let mut attr = HashMap::new();
 		while let Some(Ok(line)) = lines.next() {
-			let mut split = line.splitn(2, ":");
+			let mut split = line.splitn(2, ':');
 			if let Some(key) = split.next() {
 				attr.insert(key.to_string(), split.as_str().trim().to_string());
 			}

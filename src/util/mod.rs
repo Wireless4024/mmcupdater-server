@@ -1,14 +1,13 @@
 use std::fs::File;
-use std::io::Write;
-use std::path::PathBuf;
+use std::io;
+use std::io::{ErrorKind, Write};
+use std::path::{Component, Path, PathBuf};
 
-use anyhow::{bail, Result};
+use anyhow::Result;
 use base32::Alphabet;
 use futures::StreamExt;
-use hex::encode_to_slice;
-use tokio::io::AsyncReadExt;
-use tokio::task::block_in_place;
-use zip::{CompressionMethod, DateTime, ZipWriter};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use zip::{CompressionMethod, ZipWriter};
 use zip::write::FileOptions;
 
 use crate::file_scanner::scan_recursive;
@@ -29,30 +28,32 @@ pub async fn get_zip_file(path: PathBuf) -> Result<PathBuf> {
 
 		let mut scans = scan_recursive(path);
 
-		let mut file = File::create(&target_path)?;
+		let file = File::create(&target_path)?;
 		let mut zip = ZipWriter::new(file);
 
-		let mut buf = [0u8; 4096];
+		let mut buf = vec![0u8; 4096];
 		while let Some(file) = scans.next().await {
 			if let Ok(file) = file {
-				zip.start_file(file.file_name().to_string_lossy(), FileOptions::default().compression_method(CompressionMethod::Deflated));
+				zip.start_file(file.file_name().to_string_lossy(),
+				               FileOptions::default().compression_method(CompressionMethod::Deflated))?;
 				let mut rfile = tokio::fs::File::open(file.path()).await?;
 
 				loop {
 					let len = rfile.read(&mut buf).await?;
 					if len == 0 { break; }
-					block_in_place(|| {
-						zip.write_all(&buf)
-					})?;
+					let res = tokio_rayon::spawn(move || {
+						zip.write_all(&buf)?;
+						Result::<(ZipWriter<_>, Vec<_>)>::Ok((zip, buf))
+					}).await?;
+					zip = res.0;
+					buf = res.1;
 				}
 			}
 		}
-		let mut file = block_in_place(|| {
+		let file = tokio_rayon::spawn(move || {
 			zip.finish()
-		})?;
-		block_in_place(|| {
-			file.flush()
-		})?;
+		}).await?;
+		tokio::fs::File::from_std(file).flush().await?;
 		Ok(target_path)
 	}
 }

@@ -1,24 +1,15 @@
-use std::future;
+use std::io::Result;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
-use std::sync::Arc;
 
-use anyhow::Result;
-use base32::Alphabet;
 use futures::{stream, Stream, StreamExt};
-use futures::future::{join_all, ok};
-use md5::Context;
-use regex::internal::Input;
 use regex::Regex;
 use tokio::{fs, io};
-use tokio::fs::{DirEntry, File, read_dir};
-use tokio::sync::RwLock;
-use tokio::task::spawn_local;
+use tokio::fs::{DirEntry, read_dir};
 
-use crate::file_info::FileInfo;
-
+/// Note: check exclude to be a valid regex first!
 pub async fn scan_files_exclude(path: impl AsRef<Path>, exclude: impl AsRef<str>) -> Result<Vec<PathBuf>> {
-	let reg = Regex::new(exclude.as_ref())?;
+	let reg = Regex::new(exclude.as_ref()).unwrap();
 	scan_files(path, |it| !reg.is_match(it.file_name().to_string_lossy().as_ref())).await
 }
 
