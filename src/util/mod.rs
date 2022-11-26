@@ -1,7 +1,6 @@
 use std::fs::File;
-use std::io;
-use std::io::{ErrorKind, Write};
-use std::path::{Component, Path, PathBuf};
+use std::io::Write;
+use std::path::PathBuf;
 
 use anyhow::Result;
 use base32::Alphabet;
@@ -11,6 +10,16 @@ use zip::{CompressionMethod, ZipWriter};
 use zip::write::FileOptions;
 
 use crate::file_scanner::scan_recursive;
+
+pub mod http;
+pub mod errors;
+pub mod fs;
+pub mod java;
+pub mod gh;
+pub mod platform;
+pub mod process;
+pub mod logger;
+pub mod config;
 
 pub async fn get_zip_file(path: PathBuf) -> Result<PathBuf> {
 	if path.is_file() {

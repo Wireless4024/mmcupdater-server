@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 
 use crate::instance::mc_mod::MinecraftMod;
-
+/*
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct MinecraftServerConfig {
 	pub config: ForgeInfo,
@@ -40,4 +40,4 @@ pub struct ForgeInfo {
 	pub forge_version: String,
 	#[serde(skip_serializing_if = "Option::is_none")]
 	pub identifier: Option<String>,
-}
+}*/

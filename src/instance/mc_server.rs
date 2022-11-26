@@ -1,5 +1,6 @@
 use std::future::Future;
-use std::io::Result;
+use std::io;
+use std::io::{ErrorKind, Result};
 use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
@@ -8,11 +9,12 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, BufWriter};
 use tokio::process::{Child, ChildStdin, ChildStdout};
 use tokio::sync::{Mutex, RwLock};
 use tokio::time::{sleep, timeout};
-use tracing::{debug, info, trace, warn};
+use tracing::{debug, error, info, trace, warn};
 
 use crate::instance::mc_server::MinecraftServerStatus::{RUNNING, STARTING, STOPPED};
 
 pub struct MinecraftServer {
+	name: String,
 	pub(crate) process: Arc<Mutex<Option<Child>>>,
 	pub(crate) stdin: RwLock<Option<BufWriter<ChildStdin>>>,
 	pub(crate) status: Arc<RwLock<MinecraftServerStatus>>,
@@ -27,7 +29,7 @@ pub enum MinecraftServerStatus {
 }
 
 impl MinecraftServer {
-	pub fn new(process: Option<Child>) -> Result<Self> {
+	pub fn new(name: String, process: Option<Child>) -> Result<Self> {
 		if let Some(mut process) = process {
 			let stdout = process.stdout.take().unwrap();
 			let stdin = BufWriter::new(process.stdin.take().unwrap());
@@ -38,11 +40,12 @@ impl MinecraftServer {
 			let process_clone = process.clone();
 
 			trace!("starting server");
-			let this = Self { process, stdin: RwLock::new(Some(stdin)), status };
+			let this = Self { name, process, stdin: RwLock::new(Some(stdin)), status };
 			this.create_heartbeat(stdout, status_clone, process_clone);
 			Ok(this)
 		} else {
 			Ok(Self {
+				name,
 				process: Arc::new(Mutex::new(None)),
 				stdin: RwLock::new(None),
 				status: Arc::new(RwLock::new(STOPPED)),
@@ -67,6 +70,7 @@ impl MinecraftServer {
 			loop {
 				if let Ok(res) = timeout(Duration::from_secs(30), stdout.next_line()).await {
 					if let Ok(Some(line)) = res {
+						println!("{}", line);
 						if line.contains(r#"For help, type "help""#) {
 							info!("found help message; server started!");
 							let mut s = status.write().await;
@@ -129,7 +133,7 @@ impl MinecraftServer {
 					break;
 				}
 				drop(process);
-				sleep(Duration::from_secs(2)).await;
+				sleep(Duration::from_secs(1)).await;
 			}
 			debug!("Killing heartbeat thread..");
 			Result::<()>::Ok(())
@@ -147,7 +151,7 @@ impl MinecraftServer {
 			if status != STARTING {
 				break;
 			}
-			sleep(Duration::from_secs(2)).await;
+			sleep(Duration::from_secs(1)).await;
 		}
 		Ok(())
 	}
@@ -182,13 +186,19 @@ impl MinecraftServer {
 		Ok(())
 	}
 
-	pub async fn restart_in_place(&self, spawn: impl FnOnce() -> Pin<Box<dyn Future<Output=Result<Child>>>>) -> Result<()> {
+	pub async fn restart_in_place(&self, spawn: impl FnOnce() -> Pin<Box<dyn Future<Output=Result<Child>> + Send>>) -> Result<()> {
 		if self.status().await == STARTING {
 			warn!("Server is starting this restart will do nothing.");
 			return Ok(());
 		}
 		self.shutdown_in_place().await.ok();
 		let mut child = spawn().await?;
+		if let Ok(Some(status)) = child.try_wait() {
+			if !status.success() {
+				error!("Failed to start server!");
+				return Err(io::Error::new(ErrorKind::Other, "Failed to start"));
+			}
+		}
 		if let Some(stdout) = child.stdout.take() {
 			self.create_heartbeat(stdout, self.status.clone(), self.process.clone());
 		}

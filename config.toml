@@ -1,6 +1,0 @@
-[minecraft]
-folders = [
-    "mods",
-    "config"
-]
-exclude = ".+\\.(bak|old)$"

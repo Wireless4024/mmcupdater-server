@@ -1,58 +1,58 @@
-use std::collections::HashMap;
 use std::io;
 use std::io::{ErrorKind, Write};
 use std::io::Result;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 
-use futures::future::join_all;
-use futures::StreamExt;
+use futures::{StreamExt, TryFutureExt};
 use pedestal_rs::fs::path;
 use serde::{Deserialize, Serialize};
-use tokio::fs::{File, read_dir};
+use tokio::fs::{File, metadata, read_dir};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::process::{Child, Command};
-use tokio::spawn;
-use tokio::sync::RwLock;
-use tokio::task::block_in_place;
+use tokio::task::spawn_blocking;
 use tracing::debug;
 use zip::{CompressionMethod, ZipWriter};
+use zip::result::ZipResult;
 use zip::write::FileOptions;
 
 use crate::file_scanner::scan_recursive;
-use crate::instance::mc_mod::MinecraftMod;
-use crate::instance::mc_server::MinecraftServer;
-use crate::schema::{ForgeInfo, MinecraftServerConfig};
+use crate::util::errors::{sp_to_io, zip_to_io};
 
-#[derive(Serialize, Deserialize)]
-pub struct Config {
-	pub(crate) minecraft: MinecraftConfig,
+static DEFAULT_JVM_ARGS: &str = include_str!("../resources/default_jvm_args.txt");
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct MinecraftConfig {
+	//pub script: String,
+	pub java: String,
+	pub max_ram: u16,
+	pub jvm_args: Vec<String>,
+	pub server_file: String,
+	pub args: Vec<String>,
+	#[serde(skip)]
+	pub directory: String,
+	//pub(crate) exclude: String,
+	//#[serde(skip_serializing_if = "Vec::is_empty")]
+	pub(crate) dist_folder: Vec<String>,
 }
 
-impl Default for Config {
+
+impl Default for MinecraftConfig {
 	fn default() -> Self {
 		Self {
-			minecraft: MinecraftConfig {
-				script: String::from("start.sh"),
-				java: None,
-				directory: String::from("mc"),
-				config_zip: RwLock::new(Vec::new()),
-				folders: vec![String::from("mods")],
-				exclude: String::from(".+\\.(bak|old)$"),
-			}
+			java: String::new(),
+			max_ram: 1024,
+			jvm_args: DEFAULT_JVM_ARGS.split(char::is_whitespace)
+				.filter(|it| !it.is_empty())
+				.map(|it| it.to_string())
+				.collect::<Vec<String>>(),
+			server_file: "server.jar".to_string(),
+			args: vec!["nogui".to_string()],
+			directory: String::new(),
+			dist_folder: vec![String::from("mods")],
+			//exclude: String::from(".+\\.(bak|old)$"),
 		}
 	}
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct MinecraftConfig {
-	pub script: String,
-	pub java: Option<String>,
-	pub directory: String,
-	#[serde(skip)]
-	pub config_zip: RwLock<Vec<u8>>,
-	pub(crate) folders: Vec<String>,
-	pub(crate) exclude: String,
 }
 
 impl MinecraftConfig {
@@ -66,22 +66,7 @@ impl MinecraftConfig {
 		path::normalize(&path.canonicalize()?, name)
 	}
 
-	pub async fn scan_mods(&self) -> Result<Vec<MinecraftMod>> {
-		let mod_dir = self.dir("mods")?;
-		if !mod_dir.exists() {
-			return Ok(Vec::new());
-		}
-		let files = crate::file_scanner::scan_files_exclude(mod_dir, self.exclude.as_str()).await?;
-		let mut file_infos = Vec::with_capacity(files.len());
-		for x in files {
-			file_infos.push(spawn(MinecraftMod::try_parse(x)));
-		}
-
-		let f = join_all(file_infos).await.into_iter()
-			.filter(|it| it.is_ok() && it.as_ref().unwrap().is_ok())
-			.map(|it| it.unwrap().unwrap()).collect();
-		Ok(f)
-	}
+	/*
 
 	pub async fn zip_config(&self) -> Result<()> {
 		let mut content_handler = self.config_zip.write().await;
@@ -137,22 +122,84 @@ impl MinecraftConfig {
 		*content_handler = zip_content;
 
 		Ok(())
+	}*/
+
+	async fn zip_folder<W: Write + io::Seek + Send + 'static>(parent: &Path, folder: &Path, mut out_zip: ZipWriter<W>) -> Result<ZipWriter<W>> {
+		use futures::future;
+		let configs = scan_recursive(folder);
+		let files: Vec<PathBuf> = configs
+			.then(|ent| { future::ready(ent.ok().map(|it| it.path())) })
+			.filter(|it| future::ready(it.is_some()))
+			.map(|it| it.unwrap())
+			.collect().await; // too complex to read if I continue to use stream
+		let option = FileOptions::default()
+			.compression_method(CompressionMethod::Deflated)
+			.large_file(false)
+			.unix_permissions(0o755);
+		let mut buffer = vec![0u8; 8192];
+		for file in files {
+			let f = file.strip_prefix(&parent).map_err(sp_to_io)?.to_path_buf();
+			out_zip = spawn_blocking(move || {
+				out_zip.start_file(f.to_string_lossy(), option).map_err(zip_to_io)?;
+				Result::<_>::Ok(out_zip)
+			}).await??;
+
+			let mut file_content = File::open(file).await?;
+			loop {
+				let read = file_content.read(&mut buffer).await?;
+				match read {
+					0 => { break; }
+					n => {
+						let (zip, buf) = spawn_blocking(move || {
+							out_zip.write_all(&buffer[..n])?;
+							Result::<_>::Ok((out_zip, buffer))
+						}).await??;
+						out_zip = zip;
+						buffer = buf;
+					}
+				}
+			}
+		}
+		Ok(out_zip)
 	}
 
-	pub async fn get_config_zip(&self) -> Result<Vec<u8>> {
-		let content = self.config_zip.read().await;
-		if content.is_empty() {
-			drop(content);
-			self.zip_config().await?;
-			Ok(Vec::clone(&*self.config_zip.read().await))
-		} else {
-			Ok(Vec::clone(&*content))
+	pub async fn zip_dist(&self) -> Result<Vec<u8>> {
+		let content_handler = Vec::<u8>::with_capacity(8192);
+		let mut out_zip = ZipWriter::new(io::Cursor::new(content_handler));
+
+		let parent = self.dir("")?;
+		for x in &self.dist_folder {
+			let path = self.dir(x)?;
+			if metadata(&path).await.is_ok() {
+				out_zip = Self::zip_folder(&parent, &path, out_zip).await?;
+			}
 		}
+		let res: ZipResult<io::Cursor<Vec<u8>>> = spawn_blocking(move || {
+			out_zip.finish()
+		}).await?;
+
+		Ok(res?.into_inner())
+	}
+
+	pub async fn zip_config(&self) -> Result<Vec<u8>> {
+		let content_handler = Vec::<u8>::with_capacity(8192);
+		let mut out_zip = ZipWriter::new(io::Cursor::new(content_handler));
+
+		let parent = self.dir("")?;
+		let path = self.dir("config")?;
+		if metadata(&path).await.is_ok() {
+			out_zip = Self::zip_folder(&parent, &path, out_zip).await?;
+		}
+		let res: ZipResult<io::Cursor<Vec<u8>>> = spawn_blocking(move || {
+			out_zip.finish()
+		}).await?;
+
+		Ok(res?.into_inner())
 	}
 
 	pub async fn current_config_file(&self) -> Result<File> {
 		File::create(self.dir("current.json")?).await
-	}
+	}/*
 
 	pub async fn current_config(&self) -> Option<MinecraftServerConfig> {
 		let mut file = self.current_config_file().await.ok()?;
@@ -163,24 +210,23 @@ impl MinecraftConfig {
 		str.reserve_exact(file.metadata().await.ok()?.len() as usize);
 		file.read_to_string(&mut str).await.ok()?;
 		serde_json::from_str(&str).ok()
-	}
+	}*/
 
 	pub(crate) async fn spawn(&self) -> io::Result<Child> {
 		debug!("Spawning server");
-		let mut cmd = Command::new(self.canonicalized(self.script.as_str())?);
-		let config = self.raw_config().await?.config;
-		cmd.arg(format!("{}-{}", config.mc_version, config.forge_version));
-
-		if let Some(java) = self.java.as_ref() {
-			cmd.arg(java);
-		}
+		let mut cmd = Command::new(&self.java);
+		cmd.args(&self.jvm_args);
+		cmd.arg(format!("-Xmx{}M", self.max_ram));
+		cmd.arg("-jar");
+		cmd.arg(&self.server_file);
+		cmd.args(&self.args);
 		cmd.kill_on_drop(true);
 		cmd.current_dir(self.canonicalized("")?);
-		cmd.stderr(Stdio::null());
+		cmd.stderr(Stdio::inherit());
 		cmd.stdout(Stdio::piped());
 		cmd.stdin(Stdio::piped());
 		cmd.spawn()
-	}
+	}/*
 
 	pub async fn update_forge_cfg(&self, cfg: ForgeInfo) -> Result<MinecraftServerConfig> {
 		let mut old_config = self.raw_config().await?;
@@ -190,17 +236,9 @@ impl MinecraftConfig {
 		file.write_all(cfg_json.as_bytes()).await?;
 		file.shutdown().await?;
 		self.scan_existing_mod(old_config).await
-	}
+	}*/
 
-	async fn raw_config(&self) -> Result<MinecraftServerConfig> {
-		let mut file = File::open(self.dir("config.json")?).await?;
-		let mut data = String::new();
-		file.read_to_string(&mut data).await?;
-		let config: MinecraftServerConfig = serde_json::from_str(data.as_str())?;
-		Ok(config)
-	}
-
-	async fn scan_existing_mod(&self, mut config: MinecraftServerConfig) -> Result<MinecraftServerConfig> {
+	/*async fn scan_existing_mod(&self, mut config: MinecraftServerConfig) -> Result<MinecraftServerConfig> {
 		let mut cfg = self.config_zip.write().await;
 		cfg.clear();
 		drop(cfg);
@@ -218,17 +256,17 @@ impl MinecraftConfig {
 
 		config.mods = mod_table.into_values().collect();
 		Ok(config)
-	}
+	}*/
+	/*
+		pub async fn create_config(&self) -> Result<MinecraftServerConfig> {
+			let config = self.raw_config().await?;
+			self.scan_existing_mod(config).await
+		}*/
 
-	pub async fn create_config(&self) -> Result<MinecraftServerConfig> {
-		let config = self.raw_config().await?;
-		self.scan_existing_mod(config).await
-	}
-
-	pub async fn start(self) -> Result<MinecraftServer> {
+	/*pub async fn start(self) -> Result<MinecraftServer> {
 		let process = self.spawn().await?;
-		MinecraftServer::new(Some(process))
-	}
+		MinecraftServer::new(,Some(process))
+	}*/
 
 	pub fn get_dir(&self, path: &str) -> Result<PathBuf> {
 		let path = self.dir(path)?;
@@ -252,7 +290,7 @@ impl MinecraftConfig {
 				dir
 			}
 		};
-		let current = if let Ok(path) = self.canonicalized(""){
+		let current = if let Ok(path) = self.canonicalized("") {
 			path
 		} else {
 			return Ok(paths);
@@ -261,7 +299,7 @@ impl MinecraftConfig {
 		let mut files = read_dir(dir).await.unwrap();
 		while let Ok(Some(entry)) = files.next_entry().await {
 			let p = entry.path();
-			let is_dir = p.is_dir();
+			let is_dir = metadata(&p).await?.is_dir();
 			if let Ok(path) = p.strip_prefix(&current) {
 				let mut p = path.to_string_lossy().to_string();
 				if is_dir {
@@ -275,7 +313,7 @@ impl MinecraftConfig {
 		Ok(paths)
 	}
 
-	pub fn build(self) -> Result<MinecraftServer> {
+	/*pub fn build(self) -> Result<MinecraftServer> {
 		MinecraftServer::new(None)
-	}
+	}*/
 }

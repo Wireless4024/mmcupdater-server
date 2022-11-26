@@ -13,8 +13,8 @@ rustup toolchain install nightly
 cargo +nightly build --release
 
 mkdir -p dist/mc
-chmod +x target/release/mmcupdater-server
-cp target/release/mmcupdater-server dist/
+chmod +x target/release/mmcupdater
+cp target/release/mmcupdater dist/
 cp .env.default dist/.env
 cp default_server.json dist/
 

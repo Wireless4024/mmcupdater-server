@@ -1,0 +1,16 @@
+# Description
+# -----------
+# name: Instance name
+# version: Minecraft version
+# config.java: Java path
+# config.max_ram: Max memory in megabytes for server
+# config.jvm_args: Java launch args
+# config.server_file: Server file (.jar file)
+# config.args: Launch args
+# config.exclude: Exclude mods
+# mod_type: (if you don't need mod use Purpur)
+#   + `Vanilla` 
+#   + `Purpur`
+#   + `!Forge 'FORGE_VERSION'`
+# Note:
+# append  -XX:+UseJVMCINativeLibrary -XX:+UseJVMCICompiler to config.jvm_args if using graalvm

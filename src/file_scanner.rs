@@ -1,3 +1,4 @@
+use std::future;
 use std::io::Result;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
@@ -48,7 +49,7 @@ pub fn scan_recursive(path: impl Into<PathBuf>) -> Pin<Box<impl Stream<Item=io::
 			let path = to_visit.pop()?;
 			let file_stream = match one_level(path, &mut to_visit).await {
 				Ok(files) => stream::iter(files).map(Ok).left_stream(),
-				Err(e) => stream::once(async { Err(e) }).right_stream(),
+				Err(e) => stream::once(future::ready(Err(e))).right_stream(),
 			};
 
 			Some((file_stream, to_visit))

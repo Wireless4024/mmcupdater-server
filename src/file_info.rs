@@ -1,8 +1,9 @@
 use std::path::PathBuf;
 
 use anyhow::Result;
-use md5::Context;
 use serde::{Deserialize, Serialize};
+use sha2::Digest;
+use sha2::Sha256;
 use tokio::fs::File;
 use tokio::io::AsyncReadExt;
 
@@ -23,8 +24,8 @@ impl FileInfo {
 }
 
 pub async fn hash_file(mut file: File) -> Result<String> {
-	let mut context = Context::new();
-	let mut buffer = [0u8; 4096];
+	let mut context = Sha256::default();
+	let mut buffer = vec![0u8; 4096];
 
 	// read up to 10 bytes
 	loop {
@@ -33,12 +34,17 @@ pub async fn hash_file(mut file: File) -> Result<String> {
 				break;
 			}
 			Ok(n) => {
-				context.consume(&buffer[..n]);
+				let (ctx, buf) = tokio_rayon::spawn(move || {
+					context.update(&buffer[..n]);
+					(context, buffer)
+				}).await;
+				context = ctx;
+				buffer = buf;
 			}
 			Err(e) => {
 				Err(e)?
 			}
 		};
 	}
-	Ok(context.compute().0.iter().map(|x| format!("{:02x}", x)).collect::<String>())
+	Ok(context.finalize()[..].iter().map(|x| format!("{:02x}", x)).collect::<String>())
 }

@@ -1,0 +1,38 @@
+# [WIP]
+# Config for http service
+http:
+  # Accept client from anywhere? leave it to false if you want to reverse-proxy to this service
+  # false: only listen on localhost
+  # type: boolean
+  expose: false
+  
+  # Http listen port
+  # type: uint16
+  port: 8181
+  
+  # Listen via unix socket (linux only)
+  # type: string
+  socket: ''
+  
+  # Enable http/2 and ssl
+  # type: boolean
+  secure: false
+  
+  # [Optional]: only need when `http.secure` is true
+  # certificate file (full-chain)
+  # type: string
+  cert_file: ''
+  
+  # [Optional]: only need when `http.secure` is true
+  # certificate key (private key)
+  # type: string
+  cert_key: ''
+
+# [WIP]
+# Config for monitoring service
+monitor:
+  # Config related to prometheus
+  prometheus:
+    # Enable prometheus exporter
+    # type: boolean
+    enable: false
