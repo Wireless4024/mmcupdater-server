@@ -1,5 +1,5 @@
 use std::{io, path};
-use std::io::{Error, ErrorKind};
+use std::io::ErrorKind;
 
 use thiserror::Error;
 use zip::result::ZipError;
@@ -26,6 +26,8 @@ pub enum ErrorWrapper {
 	IO(#[from] io::Error),
 	#[error("HTTP Error")]
 	REQWEST(#[from] reqwest::Error),
+	#[error("Hyper")]
+	HYPER(#[from] hyper::Error),
 	#[error("Unknown Error")]
 	OTHER(#[from] Box<dyn std::error::Error + Send + Sync>),
 }
@@ -39,12 +41,15 @@ impl<T> From<Option<T>> for ErrorWrapper{
 	}
 }*/
 
-impl Into<io::Error> for ErrorWrapper {
-	fn into(self) -> Error {
-		match self {
+impl From<ErrorWrapper> for io::Error {
+	fn from(value: ErrorWrapper) -> Self {
+		match value {
 			ErrorWrapper::NotFound => { io::Error::new(ErrorKind::NotFound, "Not found") }
 			ErrorWrapper::IO(it) => { it }
 			ErrorWrapper::REQWEST(err) => {
+				io::Error::new(ErrorKind::Other, err)
+			}
+			ErrorWrapper::HYPER(err) => {
 				io::Error::new(ErrorKind::Other, err)
 			}
 			ErrorWrapper::OTHER(err) => {

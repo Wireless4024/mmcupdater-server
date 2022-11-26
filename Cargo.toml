@@ -12,7 +12,7 @@ thiserror = "1"
 
 # Http
 axum = { version = "0.6", features = ["multipart"] }
-axum-server = "0.4"
+axum-server = { version = "0.4", features = ["tls-rustls"] }
 hyper = "0.14"
 reqwest = { version = "0.11", features = ["async-compression", "rustls", "json", "stream"] }
 tower = "0.4"

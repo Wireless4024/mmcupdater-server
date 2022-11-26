@@ -80,6 +80,6 @@ async fn main() -> Result<()> {
 		}).await.unwrap()?;
 	}*/
 	println!("{:?}", manager.names());
-	http::init(manager.into_extension()).await;
+	http::init(manager.into_extension()).await?;
 	Ok(())
 }
