@@ -18,6 +18,7 @@ use zip::write::FileOptions;
 
 use crate::file_scanner::scan_recursive;
 use crate::util::errors::{sp_to_io, zip_to_io};
+use crate::util::java::JavaManager;
 
 static DEFAULT_JVM_ARGS: &str = include_str!("../resources/default_jvm_args.txt");
 
@@ -64,6 +65,16 @@ impl MinecraftConfig {
 	pub fn canonicalized(&self, name: impl AsRef<Path>) -> Result<PathBuf> {
 		let path: &Path = self.directory.as_ref();
 		path::normalize(&path.canonicalize()?, name)
+	}
+
+	pub async fn use_java(&mut self, java_id: &str) -> bool {
+		let java = JavaManager::get_by_id(java_id).await;
+		if let Some(java) = java {
+			self.java = java.path_for(&self.directory).to_string_lossy().to_string();
+			true
+		} else {
+			false
+		}
 	}
 
 	/*
