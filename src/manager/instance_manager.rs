@@ -20,12 +20,32 @@ pub struct InstanceManager {
 	folder: String,
 }
 
-
 macro_rules! instance_async {
     ($self:expr, $name:ident, $var:ident, $block:expr) => {
-	    $self.with_instance_async($name.as_ref(), |mut $var| {
-			async move { $block }
-		}).await
+	    match $self.find($name.as_ref()) {
+		    Some(it) => {
+			    let mut $var = it.write().await;
+			    Some($block)
+		    }
+		    None => {
+			    None
+		    }
+	    }
+    };
+}
+
+///  same as `instance_async` but read only
+macro_rules! instance_async_ro {
+    ($self:expr, $name:ident, $var:ident, $block:expr) => {
+	    match $self.find($name.as_ref()) {
+		    Some(it) => {
+			    let $var = it.read().await;
+			    Some($block)
+		    }
+		    None => {
+			    None
+		    }
+	    }
     };
 }
 
@@ -115,7 +135,7 @@ impl InstanceManager {
 
 	/// return bool: true if instance is found
 	pub async fn stop(&self, name: impl AsRef<str>) -> bool {
-		instance_async!(self, name, instance, {
+		instance_async_ro!(self, name, instance, {
 			if let Some(server) = instance.get_server() {
 				server.shutdown_in_place().await.ok();
 			}
@@ -124,7 +144,7 @@ impl InstanceManager {
 
 	/// return bool: true if instance is found
 	pub async fn kill(&self, name: impl AsRef<str>) -> bool {
-		instance_async!(self, name, instance, {
+		instance_async_ro!(self, name, instance, {
 			if let Some(server) = instance.get_server() {
 				server.kill().await.ok();
 			}
@@ -133,7 +153,7 @@ impl InstanceManager {
 
 	/// return bool: true if instance is found
 	pub async fn input(&self, name: impl AsRef<str>, message: Vec<u8>) -> bool {
-		instance_async!(self, name, instance, {
+		instance_async_ro!(self, name, instance, {
 			if let Some(server) = instance.get_server() {
 				server.input(&message).await.ok();
 			}
@@ -142,7 +162,7 @@ impl InstanceManager {
 
 	/// return bool: true if instance is found
 	pub async fn say(&self, name: impl AsRef<str>, message: String) -> bool {
-		instance_async!(self, name, instance, {
+		instance_async_ro!(self, name, instance, {
 			if let Some(server) = instance.get_server() {
 				server.say(message).await.ok();
 			}
@@ -153,7 +173,7 @@ impl InstanceManager {
 	/// Response using https://github.com/tokio-rs/axum/discussions/608#discussioncomment-1789020
 	pub async fn get_file(&self, name: impl AsRef<str>, path: impl AsRef<str>) -> Option<File> {
 		let path = PathBuf::from(path.as_ref());
-		let res = instance_async!(self, name, instance, {
+		let res = instance_async_ro!(self, name, instance, {
 			instance.get_file(path).await
 		});
 		res.flatten()
