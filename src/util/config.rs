@@ -7,6 +7,8 @@ use tokio::sync::{RwLock, RwLockReadGuard};
 use tokio::task::{JoinError, spawn_blocking};
 use tracing::{error, info};
 
+use crate::util::fs::create_if_not_existed;
+
 static DEFAULT_CONFIG_YML: &str = include_str!("../resources/dummy_config.yml");
 static CONFIG: RwLock<ConfigRoot> = RwLock::const_new(ConfigRoot::const_default());
 
@@ -80,6 +82,10 @@ pub async fn load_config() {
 		} else {
 			error!("Failed to load config; using default config")
 		}
+	} else {
+		create_if_not_existed("config.yml", DEFAULT_CONFIG_YML)
+			.await
+			.expect("generate config file");
 	}
 }
 
@@ -97,7 +103,7 @@ pub async fn modify<V: Serialize>(path: impl Into<String>, val: V) {
 	let mut cfg = CONFIG.write().await;
 	let value = serde_yaml::to_value(mem::take(&mut *cfg)).unwrap();
 	if let Value::Mapping(mut map) = value {
-		map.insert(Value::String(path.into()), serde_yaml::to_value(val).unwrap());
+		map.insert(serde_yaml::to_value(path.into()).unwrap(), serde_yaml::to_value(val).unwrap());
 		*cfg = serde_yaml::from_value(Value::Mapping(map)).unwrap();
 	}
 }
