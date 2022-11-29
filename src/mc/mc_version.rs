@@ -1,4 +1,4 @@
-pub fn java_for(mc_version: &str) -> Option<&'static JavaVersionForMc> {
+pub fn java_for<'a>(mc_version: &'a str) -> Option<&'static JavaVersionForMc> {
 	// mc version eg. 1.19 = 19
 	let version = mc_version.split('.').skip(1).next()?.parse::<u8>().ok()?;
 	if version <= 12 {

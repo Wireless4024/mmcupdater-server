@@ -11,8 +11,8 @@ use axum::http::{Request, Response, StatusCode, Uri};
 use axum::response::IntoResponse;
 use futures::stream::FuturesUnordered;
 use futures::StreamExt;
-use futures::task::SpawnExt;
 use hashbrown::HashMap;
+use pedestal_rs::ext::ArcExt;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use tokio::fs::{create_dir_all, File, metadata, read_dir, remove_dir_all, remove_file, rename};
@@ -147,11 +147,11 @@ impl McInstance {
 			}
 		}
 		{
-			let c = Arc::get_mut(&mut cfg.config).unwrap();
-			c.directory = folder.to_string_lossy().to_string();
-			{
+			let java = java_for(&cfg.version).unwrap();
+			let folder = folder.to_string_lossy().to_string();
+			cfg.config.modify_async(|c| Box::pin(async {
+				c.directory = folder;
 				if c.java.is_empty() {
-					let java = java_for(&cfg.version).unwrap();
 					let j = JavaManager::get_version(java.recommended).await;
 					match j {
 						None => {
@@ -167,7 +167,7 @@ impl McInstance {
 						}
 					}
 				}
-			}
+			})).await;
 		}
 		cfg.save().await?;
 		Ok(cfg)
