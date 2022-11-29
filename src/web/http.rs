@@ -9,40 +9,17 @@ use tracing::{debug, info};
 use crate::manager::instance_manager::InstanceManagerExt;
 use crate::util::config::get_config;
 use crate::util::errors::ErrorWrapper;
+use crate::web::routes::build_route;
 
 pub async fn init(manager: InstanceManagerExt) -> Result<(), ErrorWrapper> {
 	let cfg = get_config().await;
-	let app = Router::new()
-		/*.route("/stop", get(shutdown))
-		.route("/kill", get(kill))
-		.route("/status", get(status))
-		.route("/restart", get(restart))
-		.route("/update", post(update))
-		.route("/update_cfg", post(update_cfg))
-		.nest("/mc/file", get(get_mc_file))
-		.route("/mc/file", post(list_mc_file))
-		.route("/mc/file", put(update_mc_file))
-		.route("/mc/file", delete(rm_mc_file))*/
-		.layer(CorsLayer::permissive())
-		.layer(manager);
-	let mut app = app;
-	//.nest("/mods", get(handler))
-	//.route("/config.json", get(config));
-
-	/*	if let Ok(mut serve) = env::var("serve_config") {
-			serve.make_ascii_lowercase();
-			match serve.as_str() {
-				"y" | "1" | "true" => {
-					app = app.route("/config.zip", get(config_dir));
-				}
-				_ => {}
-			}
-		}*/
-
+	let mut app = Router::new();
+	build_route(&mut app);
+	let app = app.layer(CorsLayer::permissive()).layer(manager);
 	debug!("configuring http server");
 	let defaut_addr = SocketAddr::from((if cfg.http.expose { [0, 0, 0, 0] } else { [127, 0, 0, 1] }, cfg.http.port));
 
-	info!("starting http service at port {}",cfg.http.port);
+	info!("starting http service at port {:?}",defaut_addr);
 
 	if cfg.http.secure {
 		let config = RustlsConfig::from_pem_file(
