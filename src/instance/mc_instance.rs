@@ -4,7 +4,7 @@ use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use anyhow::anyhow;
+use anyhow::{anyhow,Result};
 use axum::{extract, Json};
 use axum::body::{Body, BoxBody, boxed};
 use axum::http::{Request, Response, StatusCode, Uri};
@@ -70,7 +70,7 @@ impl Default for McInstance {
 }
 
 impl McInstance {
-	pub async fn load(path: impl AsRef<Path>) -> io::Result<Self> {
+	pub async fn load(path: impl AsRef<Path>) -> Result<Self> {
 		let path = path.as_ref();
 		let config = path.join("config.yml");
 		let mut cfg_file = match File::open(&config).await {
@@ -100,7 +100,7 @@ impl McInstance {
 	/// # Arguments 
 	///
 	/// * `folder`: Instance folder (will replace existing)
-	pub async fn generate(folder: &Path, version: &str, mod_type: ModType) -> io::Result<McInstance> {
+	pub async fn generate(folder: &Path, version: &str, mod_type: ModType) -> Result<McInstance> {
 		let mut cfg = Self::default();
 		#[allow(clippy::field_reassign_with_default)]
 		{ cfg.mod_type = mod_type; }
@@ -174,7 +174,7 @@ impl McInstance {
 	}
 
 	// try to initialize instance (download server file as needed)
-	pub async fn init(&mut self) -> io::Result<()> {
+	pub async fn init(&mut self) -> Result<()> {
 		let cfg = &self.config;
 		// server file is not existed
 		let server_path = self.dir(&cfg.server_file)?;
@@ -200,7 +200,7 @@ impl McInstance {
 		}
 	}
 
-	pub async fn list_dir(&self, path: impl AsRef<Path>) -> io::Result<Vec<OwnedDirEntry>> {
+	pub async fn list_dir(&self, path: impl AsRef<Path>) -> Result<Vec<OwnedDirEntry>> {
 		let path = path.as_ref();
 		let parent = self.dir("")?;
 		let file = self.dir(path)?;
@@ -243,7 +243,7 @@ impl McInstance {
 
 
 	/// Serialize configuration to file, config file will stored in instance folder (self.config.directory)
-	pub async fn save(&self) -> io::Result<()> {
+	pub async fn save(&self) -> Result<()> {
 		let data = serde_yaml::to_string(self).expect("Serialize config");
 		let mut cfg_file = File::create((AsRef::<Path>::as_ref(&self.config.directory)).join("config.yml")).await?;
 		cfg_file.write_all(data.as_bytes()).await?;
@@ -310,11 +310,11 @@ impl McInstance {
 	}
 
 	#[inline]
-	pub fn dir(&self, name: impl AsRef<Path>) -> io::Result<PathBuf> {
+	pub fn dir(&self, name: impl AsRef<Path>) -> Result<PathBuf> {
 		self.config.dir(name)
 	}
 
-	pub async fn rm_file(&self, paths: Vec<String>) -> io::Result<()> {
+	pub async fn rm_file(&self, paths: Vec<String>) -> Result<()> {
 		let mut removed: Vec<String> = Vec::with_capacity(paths.len());
 
 		for file in paths {
@@ -363,7 +363,7 @@ impl McInstance {
 		self._server_instance.as_ref().map(|it| Arc::clone(it))
 	}
 
-	pub fn restart_in_place(&mut self) -> JoinHandle<io::Result<()>> {
+	pub fn restart_in_place(&mut self) -> JoinHandle<Result<()>> {
 		match &self._server_instance {
 			None => { unreachable!() }
 			Some(server) => {
@@ -380,13 +380,13 @@ impl McInstance {
 		}
 	}
 
-	pub async fn scan_mods(&self) -> io::Result<Vec<MinecraftMod>> {
+	pub async fn scan_mods(&self) -> Result<Vec<MinecraftMod>> {
 		let mod_dir = self.dir("mods")?;
 		if !mod_dir.exists() {
 			return Ok(Vec::new());
 		}
 		let files = crate::file_scanner::scan_files(mod_dir, |it| it.file_name().to_string_lossy().ends_with(".jar")).await?;
-		let mut file_infos = FuturesUnordered::new();
+		let file_infos = FuturesUnordered::new();
 		for x in files {
 			file_infos.push(MinecraftMod::try_parse(x));
 		}

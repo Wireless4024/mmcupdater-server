@@ -20,6 +20,7 @@ pub mod platform;
 pub mod process;
 pub mod logger;
 pub mod config;
+pub mod safe_writer;
 
 pub async fn get_zip_file(path: PathBuf) -> Result<PathBuf> {
 	if path.is_file() {

@@ -2,11 +2,11 @@ use std::future::Future;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use anyhow::Result;
 use axum::Extension;
 use hashbrown::HashMap;
 use pedestal_rs::fs::path::normalize;
 use tokio::fs::{create_dir_all, File, read_dir};
-use tokio::io;
 use tokio::sync::{OwnedRwLockWriteGuard, RwLock};
 use tracing::{debug, error, info};
 
@@ -61,7 +61,7 @@ impl InstanceManager {
 		Extension(Arc::new(RwLock::new(self)))
 	}
 
-	pub async fn init(&mut self) -> io::Result<()> {
+	pub async fn init(&mut self) -> Result<()> {
 		let path: &Path = self.folder.as_ref();
 		if !path.exists() {
 			info!("creating new instance folder at {path:?}");
@@ -71,7 +71,7 @@ impl InstanceManager {
 		Ok(())
 	}
 
-	pub async fn update(&mut self) -> io::Result<()> {
+	pub async fn update(&mut self) -> Result<()> {
 		info!("scanning {:?} for minecraft instances", self.folder);
 		let mut dir = read_dir(&self.folder).await?;
 		while let Ok(Some(e)) = dir.next_entry().await {
@@ -100,7 +100,7 @@ impl InstanceManager {
 		Ok(())
 	}
 
-	pub async fn new_instance(&mut self, name: &str, version: &str, typ: ModType) -> io::Result<Instance> {
+	pub async fn new_instance(&mut self, name: &str, version: &str, typ: ModType) -> Result<Instance> {
 		let path = normalize(self.folder.as_ref(), name)?;
 		if !path.exists() {
 			create_dir_all(&path).await?;

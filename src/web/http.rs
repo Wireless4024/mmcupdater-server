@@ -13,8 +13,7 @@ use crate::web::routes::build_route;
 
 pub async fn init(manager: InstanceManagerExt) -> Result<(), ErrorWrapper> {
 	let cfg = get_config().await;
-	let mut app = Router::new();
-	build_route(&mut app);
+	let app = build_route(Router::new());
 	let app = app.layer(CorsLayer::permissive()).layer(manager);
 	debug!("configuring http server");
 	let defaut_addr = SocketAddr::from((if cfg.http.expose { [0, 0, 0, 0] } else { [127, 0, 0, 1] }, cfg.http.port));

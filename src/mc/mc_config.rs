@@ -1,14 +1,13 @@
-use std::io;
-use std::io::{ErrorKind, Write};
-use std::io::Result;
+use std::io::{Cursor, Seek, Write};
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 
-use futures::{StreamExt, TryFutureExt};
+use anyhow::{anyhow, bail, Context, Result};
+use futures::StreamExt;
 use pedestal_rs::fs::path;
 use serde::{Deserialize, Serialize};
 use tokio::fs::{File, metadata, read_dir};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::AsyncReadExt;
 use tokio::process::{Child, Command};
 use tokio::task::spawn_blocking;
 use tracing::debug;
@@ -17,7 +16,7 @@ use zip::result::ZipResult;
 use zip::write::FileOptions;
 
 use crate::file_scanner::scan_recursive;
-use crate::util::errors::{sp_to_io, zip_to_io};
+use crate::util::errors::zip_to_io;
 use crate::util::java::JavaManager;
 
 static DEFAULT_JVM_ARGS: &str = include_str!("../resources/default_jvm_args.txt");
@@ -59,12 +58,12 @@ impl Default for MinecraftConfig {
 impl MinecraftConfig {
 	/// get path inside minecraft directory
 	pub fn dir(&self, name: impl AsRef<Path>) -> Result<PathBuf> {
-		path::normalize(self.directory.as_ref(), name)
+		Ok(path::normalize(self.directory.as_ref(), name).context("Path normalization")?)
 	}
 	/// get canonicalize path inside minecraft directory
 	pub fn canonicalized(&self, name: impl AsRef<Path>) -> Result<PathBuf> {
 		let path: &Path = self.directory.as_ref();
-		path::normalize(&path.canonicalize()?, name)
+		Ok(path::normalize(&path.canonicalize()?, name).context("Path normalization")?)
 	}
 
 	pub async fn use_java(&mut self, java_id: &str) -> bool {
@@ -135,7 +134,7 @@ impl MinecraftConfig {
 		Ok(())
 	}*/
 
-	async fn zip_folder<W: Write + io::Seek + Send + 'static>(parent: &Path, folder: &Path, mut out_zip: ZipWriter<W>) -> Result<ZipWriter<W>> {
+	async fn zip_folder<W: Write + Seek + Send + 'static>(parent: &Path, folder: &Path, mut out_zip: ZipWriter<W>) -> Result<ZipWriter<W>> {
 		use futures::future;
 		let configs = scan_recursive(folder);
 		let files: Vec<PathBuf> = configs
@@ -149,9 +148,9 @@ impl MinecraftConfig {
 			.unix_permissions(0o755);
 		let mut buffer = vec![0u8; 8192];
 		for file in files {
-			let f = file.strip_prefix(&parent).map_err(sp_to_io)?.to_path_buf();
+			let f = file.strip_prefix(&parent).context("strip prefix")?.to_path_buf();
 			out_zip = spawn_blocking(move || {
-				out_zip.start_file(f.to_string_lossy(), option).map_err(zip_to_io)?;
+				out_zip.start_file(f.to_string_lossy(), option)?;
 				Result::<_>::Ok(out_zip)
 			}).await??;
 
@@ -176,7 +175,7 @@ impl MinecraftConfig {
 
 	pub async fn zip_dist(&self) -> Result<Vec<u8>> {
 		let content_handler = Vec::<u8>::with_capacity(8192);
-		let mut out_zip = ZipWriter::new(io::Cursor::new(content_handler));
+		let mut out_zip = ZipWriter::new(Cursor::new(content_handler));
 
 		let parent = self.dir("")?;
 		for x in &self.dist_folder {
@@ -185,7 +184,7 @@ impl MinecraftConfig {
 				out_zip = Self::zip_folder(&parent, &path, out_zip).await?;
 			}
 		}
-		let res: ZipResult<io::Cursor<Vec<u8>>> = spawn_blocking(move || {
+		let res: ZipResult<Cursor<Vec<u8>>> = spawn_blocking(move || {
 			out_zip.finish()
 		}).await?;
 
@@ -194,14 +193,14 @@ impl MinecraftConfig {
 
 	pub async fn zip_config(&self) -> Result<Vec<u8>> {
 		let content_handler = Vec::<u8>::with_capacity(8192);
-		let mut out_zip = ZipWriter::new(io::Cursor::new(content_handler));
+		let mut out_zip = ZipWriter::new(Cursor::new(content_handler));
 
 		let parent = self.dir("")?;
 		let path = self.dir("config")?;
 		if metadata(&path).await.is_ok() {
 			out_zip = Self::zip_folder(&parent, &path, out_zip).await?;
 		}
-		let res: ZipResult<io::Cursor<Vec<u8>>> = spawn_blocking(move || {
+		let res: ZipResult<Cursor<Vec<u8>>> = spawn_blocking(move || {
 			out_zip.finish()
 		}).await?;
 
@@ -209,7 +208,7 @@ impl MinecraftConfig {
 	}
 
 	pub async fn current_config_file(&self) -> Result<File> {
-		File::create(self.dir("current.json")?).await
+		Ok(File::create(self.dir("current.json")?).await?)
 	}/*
 
 	pub async fn current_config(&self) -> Option<MinecraftServerConfig> {
@@ -223,7 +222,7 @@ impl MinecraftConfig {
 		serde_json::from_str(&str).ok()
 	}*/
 
-	pub(crate) async fn spawn(&self) -> io::Result<Child> {
+	pub(crate) async fn spawn(&self) -> Result<Child> {
 		debug!("Spawning server");
 		let mut cmd = Command::new(&self.java);
 		cmd.args(&self.jvm_args);
@@ -236,7 +235,7 @@ impl MinecraftConfig {
 		cmd.stderr(Stdio::inherit());
 		cmd.stdout(Stdio::piped());
 		cmd.stdin(Stdio::piped());
-		cmd.spawn()
+		Ok(cmd.spawn()?)
 	}/*
 
 	pub async fn update_forge_cfg(&self, cfg: ForgeInfo) -> Result<MinecraftServerConfig> {
@@ -282,11 +281,11 @@ impl MinecraftConfig {
 	pub fn get_dir(&self, path: &str) -> Result<PathBuf> {
 		let path = self.dir(path)?;
 		if path.is_file() {
-			Ok(path.parent().ok_or_else(|| io::Error::from(ErrorKind::NotADirectory))?.to_path_buf())
+			Ok(path.parent().ok_or_else(|| anyhow!("path have no parent"))?.to_path_buf())
 		} else if path.exists() {
 			Ok(path)
 		} else {
-			Err(ErrorKind::NotADirectory.into())
+			bail!("path is not existed")
 		}
 	}
 

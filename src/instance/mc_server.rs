@@ -1,6 +1,7 @@
 use std::future::Future;
 use std::io;
-use std::io::{ErrorKind, Result};
+use std::io::{ErrorKind};
+use anyhow::{bail, Result};
 use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
@@ -196,7 +197,7 @@ impl MinecraftServer {
 		if let Ok(Some(status)) = child.try_wait() {
 			if !status.success() {
 				error!("Failed to start server!");
-				return Err(io::Error::new(ErrorKind::Other, "Failed to start"));
+				bail!("failed to start server");
 			}
 		}
 		if let Some(stdout) = child.stdout.take() {

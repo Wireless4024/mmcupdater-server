@@ -6,7 +6,8 @@ extern crate core;
 
 use std::str::FromStr;
 
-use anyhow::Result;
+use anyhow::{anyhow, bail, Result};
+use anyhow::__private::kind::AdhocKind;
 use axum::extract::FromRequest;
 use axum::response::IntoResponse;
 use axum::routing::{delete, post, put};
@@ -21,6 +22,7 @@ use tracing::info;
 use crate::jar_scanner::get_manifest;
 use crate::manager::instance_manager::InstanceManager;
 use crate::util::{config, logger};
+use crate::util::errors::ErrorWrapper;
 use crate::util::java::JavaManager;
 use crate::web::http;
 
@@ -53,10 +55,15 @@ async fn init() -> Result<()> {
 	Result::<()>::Ok(())
 }
 
+fn test_err() -> anyhow::Result<(), ErrorWrapper> {
+	Err(ErrorWrapper::NotFound)?;
+	Ok(())
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
 	dotenv::dotenv().ok();
-	
+
 	let _guard = logger::init();
 	info!("starting MMC Updater server {}", env!("CARGO_PKG_VERSION"));
 	config::load_config().await;
@@ -65,7 +72,7 @@ async fn main() -> Result<()> {
 	JavaManager::scan().await?;
 	//JavaManager::download_version(8).await?;
 	//JavaManager::try_purge_jdk("java_runtime/java8").await?;
-	println!("{:?}", JavaManager::versions().await);
+	println!("{}", String::from_utf8_lossy(&hyper::body::to_bytes(test_err().unwrap_err().into_response().into_body()).await.unwrap()));
 	let mut manager = InstanceManager::new();
 	//println!("{:?}", ModType::Vanilla.versions(&Client::new()).await);
 	manager.init().await?;
