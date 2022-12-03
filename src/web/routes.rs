@@ -1,16 +1,12 @@
+use axum::{Json, Router};
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
-use axum::{Json, Router};
 use axum::routing::get;
 
-use crate::util::errors::{ErrorWrapper, HttpResult, ResponseResult};
-
-const API_VERSION: usize = 1;
+use crate::info::GlobalInfo;
+use crate::web::v1::get_v1;
 
 pub fn build_route(route: Router) -> Router {
-	let api_router = Router::new()
-		.route("/err", get(err))
-		.route("/success", get(success));
 	/* example route
 	.route("/stop", get(shutdown))
 		.route("/kill", get(kill))
@@ -22,16 +18,13 @@ pub fn build_route(route: Router) -> Router {
 		.route("/mc/file", post(list_mc_file))
 		.route("/mc/file", put(update_mc_file))
 		.route("/mc/file", delete(rm_mc_file))*/
-	route.nest(&format!("/api/v{API_VERSION}"), api_router)
+	route.route("/api", get(api_info))
+		.nest("/api/v1", get_v1())
 		.fallback(not_found)
 }
 
-async fn err() -> Result<Json<HttpResult<&'static str>>,ErrorWrapper> {
-	HttpResult::err("hello")
-}
-
-async fn success() -> ResponseResult<&'static str> {
-	HttpResult::success("Ayyooo")
+async fn api_info() -> impl IntoResponse {
+	Json(GlobalInfo::default())
 }
 
 async fn not_found() -> impl IntoResponse {

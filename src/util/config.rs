@@ -15,6 +15,7 @@ static CONFIG: RwLock<ConfigRoot> = RwLock::const_new(ConfigRoot::const_default(
 #[derive(Serialize, Deserialize, Debug, Default)]
 pub struct ConfigRoot {
 	pub http: HttpConfig,
+	pub monitor: MonitorConfig,
 }
 
 #[derive(Serialize, Deserialize, Debug, Default)]
@@ -67,7 +68,12 @@ impl ConfigRoot {
 				secure: false,
 				cert_file: None,
 				cert_key: None,
-			}
+			},
+			monitor: MonitorConfig {
+				prometheus: PrometheusConfig {
+					enable: false,
+				},
+			},
 		}
 	}
 }
@@ -75,9 +81,12 @@ impl ConfigRoot {
 pub async fn load_config() {
 	info!("loading config..");
 	if let Ok(file) = File::open("config.yml") {
-		let config: Value = serde_yaml::from_reader(file).expect("Load config");
-		let config = env_to_yml(config);
-		if let Result::<ConfigRoot, _>::Ok(res) = serde_yaml::from_value(config) {
+		let cfg = spawn_blocking(|| {
+			let config: Value = serde_yaml::from_reader(file).expect("Load config");
+			let config = env_to_yml(config);
+			serde_yaml::from_value::<ConfigRoot>(config)
+		}).await;
+		if let Ok(Ok(res)) = cfg {
 			*CONFIG.write().await = res;
 		} else {
 			error!("Failed to load config; using default config")
@@ -94,7 +103,7 @@ pub async fn save_config() -> Result<(), JoinError> {
 	let cfg = get_config().await;
 	spawn_blocking(move || {
 		if let Ok(file) = File::create("config.yml") {
-			serde_yaml::to_writer(file, &*cfg).unwrap();
+			serde_yaml::to_writer(file, &*cfg).ok();
 		}
 	}).await
 }
