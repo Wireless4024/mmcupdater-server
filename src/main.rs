@@ -37,6 +37,7 @@ mod macros;
 mod mc;
 mod web;
 mod info;
+mod db;
 
 #[tokio::main]
 async fn main() -> Result<()> {

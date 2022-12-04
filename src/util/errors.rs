@@ -1,4 +1,5 @@
 use std::error::Error;
+use std::fmt::Debug;
 use std::io;
 use std::io::ErrorKind;
 
@@ -22,20 +23,31 @@ pub fn zip_to_io(err: ZipError) -> io::Error {
 pub type Result<T> = std::result::Result<T, ErrorWrapper>;
 
 #[derive(Serialize)]
-pub struct HttpResult<T: Serialize> {
+pub struct HttpResult<T: Serialize, M: Serialize> {
 	success: bool,
 	#[serde(skip_serializing_if = "Option::is_none")]
-	message: Option<String>,
+	message: Option<M>,
 	#[serde(skip_serializing_if = "Option::is_none")]
 	err_cause: Option<String>,
 	#[serde(skip_serializing_if = "Option::is_none")]
 	result: Option<T>,
 }
 
-pub type ResponseResult<T> = std::result::Result<Json<HttpResult<T>>, ErrorWrapper>;
+pub type ResponseResult<T, M = String> = std::result::Result<Json<HttpResult<T, M>>, ErrorWrapper>;
 
-impl<T: Serialize> HttpResult<T> {
-	pub fn success(data: T) -> ResponseResult<T> {
+impl<M: Serialize> HttpResult<String, M> {
+	pub fn err_raw(message: M) -> Json<Self> {
+		Json(Self {
+			success: false,
+			message: Some(message),
+			err_cause: None,
+			result: None,
+		})
+	}
+}
+
+impl<T: Serialize, M: Serialize> HttpResult<T, M> {
+	pub fn success(data: T) -> std::result::Result<Json<Self>, ErrorWrapper> {
 		Ok(Json(Self {
 			success: true,
 			message: None,
@@ -44,16 +56,16 @@ impl<T: Serialize> HttpResult<T> {
 		}))
 	}
 
-	pub fn err(message: impl Into<String>) -> ResponseResult<T> {
+	pub fn err(message: M) -> std::result::Result<Json<Self>, ErrorWrapper> {
 		Ok(Json(Self {
 			success: false,
-			message: Some(message.into()),
+			message: Some(message),
 			err_cause: None,
 			result: None,
 		}))
 	}
 
-	pub fn err_with_cause(message: String, cause: String) -> ResponseResult<T> {
+	pub fn err_with_cause(message: M, cause: String) -> std::result::Result<Json<Self>, ErrorWrapper> {
 		Ok(Json(Self {
 			success: false,
 			message: Some(message),
@@ -64,7 +76,7 @@ impl<T: Serialize> HttpResult<T> {
 }
 
 #[derive(Error, Debug)]
-pub enum ErrorWrapper {
+pub enum ErrorWrapper<C: IntoResponse + Debug = &'static str> {
 	#[error("No such element")]
 	NotFound,
 	#[error("IO Error")]
@@ -77,6 +89,14 @@ pub enum ErrorWrapper {
 	Anyhow(#[from] anyhow::Error),
 	#[error("Unknown Error")]
 	Other(#[from] Box<dyn Error + Send + Sync>),
+	#[error("Custom Error")]
+	Custom(StatusCode, C),
+}
+
+impl<C: IntoResponse + Debug> ErrorWrapper<C> {
+	pub fn custom(status: StatusCode, message: C) -> Self {
+		Self::Custom(status, message)
+	}
 }
 /*
 impl<T> From<Option<T>> for ErrorWrapper{
@@ -105,6 +125,9 @@ impl From<ErrorWrapper> for io::Error {
 			ErrorWrapper::Anyhow(err) => {
 				io::Error::new(ErrorKind::Other, err)
 			}
+			ErrorWrapper::Custom(_, msg) => {
+				io::Error::new(ErrorKind::Other, format!("{msg:?}"))
+			}
 		}
 	}
 }
@@ -115,10 +138,18 @@ macro_rules! write_err {
     };
 }
 
-impl IntoResponse for ErrorWrapper {
+impl<C: IntoResponse + Debug> IntoResponse for ErrorWrapper<C> {
 	fn into_response(self) -> Response {
-		if let Self::NotFound = &self {
-			return (StatusCode::NOT_FOUND, String::from("Not found")).into_response();
+		match &self {
+			Self::NotFound => {
+				return (StatusCode::NOT_FOUND, String::from("Not found")).into_response();
+			}
+			Self::Custom(..) => {
+				if let Self::Custom(code, msg) = self {
+					return (code, msg).into_response();
+				}
+			}
+			_ => {}
 		}
 		#[cfg(debug_assertions)]
 			let mut error_message = String::with_capacity(2048);
@@ -144,8 +175,8 @@ impl IntoResponse for ErrorWrapper {
 				ErrorWrapper::Anyhow(err) => {
 					write_err!(writer, err);
 				}
-				ErrorWrapper::NotFound => {
-					error_message.push_str("Not found");
+				ErrorWrapper::NotFound | ErrorWrapper::Custom(..) => {
+					unreachable!();
 				}
 			}
 		}

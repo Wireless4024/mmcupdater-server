@@ -27,6 +27,24 @@ http:
   # certificate key (private key)
   # type: string
   cert_key: ''
+  
+  jwt:
+    # Jwt encoding algorithm
+    # Possible values:
+    # "HS256", "HS384", "HS512", 
+    # "ES256", "ES384", 
+    # "RS256", "RS384", "RS512",
+    # "PS256", "PS384", "PS512", 
+    # "EdDSA"
+    # Note: ensure key type is match!
+    # type: enum
+    algo: 'RS256'
+    # Path to private key
+    # type: string
+    enc_key: ''
+    # Path to public key
+    # type: string
+    dec_key: ''
 
 # [WIP]
 # Config for monitoring service
@@ -36,3 +54,12 @@ monitor:
     # Enable prometheus exporter
     # type: boolean
     enable: false
+
+# [WIP]
+security:
+  # Max amount of wrong password; -1 is infinity
+  # type: int32
+  max_login_retry: 15
+  # Number of minutes until retry timeout reset; -1 for manual reset
+  # type: uint64
+  login_cool_down: 30

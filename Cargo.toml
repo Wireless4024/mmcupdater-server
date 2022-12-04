@@ -17,6 +17,10 @@ hyper = "0.14"
 reqwest = { version = "0.11", features = ["async-compression", "rustls", "json", "stream"] }
 tower = "0.4"
 tower-http = { version = "0.3", features = ["fs", "cors", "tracing"] }
+# auth
+jsonwebtoken = "8.1"
+openssl = { version = "0.10", features = ["vendored"] }
+rust-argon2 = "1.0"
 
 # Encoding
 base32 = "0.4"
@@ -47,8 +51,9 @@ futures = "0.3"
 
 # Misc
 flate2 = { version = "1.0" }
-rand = { version = "0", features = [] }
+rand = { version = "0", features = ["rand_chacha"] }
 regex = { version = "1.5" }
+sys-info = "0.9"
 tar = "0.4"
 zip = "0.6"
 

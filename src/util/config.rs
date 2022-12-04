@@ -1,6 +1,7 @@
 use std::{env, mem};
 use std::fs::File;
 
+use jsonwebtoken::Algorithm;
 use serde::{Deserialize, Serialize};
 use serde_yaml::{Mapping, Value};
 use tokio::sync::{RwLock, RwLockReadGuard};
@@ -16,6 +17,7 @@ static CONFIG: RwLock<ConfigRoot> = RwLock::const_new(ConfigRoot::const_default(
 pub struct ConfigRoot {
 	pub http: HttpConfig,
 	pub monitor: MonitorConfig,
+	pub security: Security,
 }
 
 #[derive(Serialize, Deserialize, Debug, Default)]
@@ -38,9 +40,30 @@ pub struct HttpConfig {
 	/// certificate key (private key)
 	#[serde(default)]
 	pub cert_key: Option<String>,
+
+	/// config related to jwt
+	#[serde(default)]
+	pub jwt: JwtConfig,
 }
 
-fn default_port() -> u16 { 8181 }
+const fn default_port() -> u16 { 8181 }
+
+#[derive(Serialize, Deserialize, Debug, Default)]
+pub struct JwtConfig {
+	/// Jwt algorithm (modify this if you need compatibility or security)
+	#[serde(default = "default_jwt_algo")]
+	pub algo: Algorithm,
+	/// Path to public key for jwt
+	#[serde(default)]
+	pub enc_key: String,
+	/// Path to private key for jwt
+	#[serde(default)]
+	pub dec_key: String,
+}
+
+const fn default_jwt_algo() -> Algorithm { Algorithm::RS256 }
+
+const fn default_jwt_key_size() -> u32 { 2048 }
 
 pub async fn get_config() -> RwLockReadGuard<'static, ConfigRoot> {
 	CONFIG.read().await
@@ -58,21 +81,42 @@ pub struct PrometheusConfig {
 	pub enable: bool,
 }
 
+#[derive(Serialize, Deserialize, Debug, Default)]
+pub struct Security {
+	#[serde(default = "default_max_login_retry")]
+	pub max_login_retry: i32,
+	#[serde(default = "default_login_cool_down")]
+	pub login_cool_down: u64,
+}
+
+const fn default_max_login_retry() -> i32 { 15 }
+
+const fn default_login_cool_down() -> u64 { 30 }
+
 impl ConfigRoot {
 	pub const fn const_default() -> Self {
 		Self {
 			http: HttpConfig {
 				expose: false,
-				port: 8181,
+				port: default_port(),
 				socket: String::new(),
 				secure: false,
 				cert_file: None,
 				cert_key: None,
+				jwt: JwtConfig {
+					algo: default_jwt_algo(),
+					enc_key: String::new(),
+					dec_key: String::new(),
+				},
 			},
 			monitor: MonitorConfig {
 				prometheus: PrometheusConfig {
 					enable: false,
 				},
+			},
+			security: Security {
+				max_login_retry: default_max_login_retry(),
+				login_cool_down: default_login_cool_down(),
 			},
 		}
 	}

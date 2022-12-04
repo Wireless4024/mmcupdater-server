@@ -4,7 +4,7 @@ use axum::routing::get;
 use tracing::log::debug;
 
 use crate::info::DetailedInfo;
-use crate::util::errors::{ErrorWrapper, HttpResult, ResponseResult};
+use crate::util::errors::{HttpResult, ResponseResult};
 
 pub fn get_v1() -> Router {
 	debug!("Configuring v1 routes");
@@ -18,8 +18,7 @@ async fn info() -> impl IntoResponse {
 	Json(DetailedInfo::default())
 }
 
-
-async fn err() -> Result<Json<HttpResult<&'static str>>, ErrorWrapper> {
+async fn err() -> ResponseResult<&'static str, &'static str> {
 	HttpResult::err("hello")
 }
 

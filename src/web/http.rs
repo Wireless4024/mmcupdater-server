@@ -18,7 +18,7 @@ pub async fn init(manager: InstanceManagerExt) -> Result<(), ErrorWrapper> {
 	debug!("configuring http server");
 	let defaut_addr = SocketAddr::from((if cfg.http.expose { [0, 0, 0, 0] } else { [127, 0, 0, 1] }, cfg.http.port));
 
-
+	super::authentication::init().await?;
 	info!("starting http service at port http{}://{:?}",if cfg.http.secure{"s"}else{""},defaut_addr);
 
 	if cfg.http.secure {

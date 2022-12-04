@@ -21,6 +21,8 @@ pub mod process;
 pub mod logger;
 pub mod config;
 pub mod safe_writer;
+pub mod time;
+pub mod modification;
 
 pub async fn get_zip_file(path: PathBuf) -> Result<PathBuf> {
 	if path.is_file() {
