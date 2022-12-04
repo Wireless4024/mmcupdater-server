@@ -1,6 +1,7 @@
+#[allow(clippy::needless_lifetimes)] // sometime mc_version need static lifetime
 pub fn java_for<'a>(mc_version: &'a str) -> Option<&'static JavaVersionForMc> {
 	// mc version eg. 1.19 = 19
-	let version = mc_version.split('.').skip(1).next()?.parse::<u8>().ok()?;
+	let version = mc_version.split('.').nth(1)?.parse::<u8>().ok()?;
 	if version <= 12 {
 		Some(MC12)
 	} else if version <= 16 {
@@ -10,17 +11,17 @@ pub fn java_for<'a>(mc_version: &'a str) -> Option<&'static JavaVersionForMc> {
 	}
 }
 
-static MC12: &'static JavaVersionForMc = &JavaVersionForMc {
+static MC12: &JavaVersionForMc = &JavaVersionForMc {
 	supported: &[8, 11, 17],
 	recommended: 8,
 };
 
-static MC16: &'static JavaVersionForMc = &JavaVersionForMc {
+static MC16: &JavaVersionForMc = &JavaVersionForMc {
 	supported: &[8, 11, 17],
 	recommended: 11,
 };
 
-static MC18: &'static JavaVersionForMc = &JavaVersionForMc {
+static MC18: &JavaVersionForMc = &JavaVersionForMc {
 	supported: &[17],
 	recommended: 17,
 };

@@ -63,8 +63,6 @@ pub struct JwtConfig {
 
 const fn default_jwt_algo() -> Algorithm { Algorithm::RS256 }
 
-const fn default_jwt_key_size() -> u32 { 2048 }
-
 pub async fn get_config() -> RwLockReadGuard<'static, ConfigRoot> {
 	CONFIG.read().await
 }
