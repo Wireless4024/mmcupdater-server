@@ -1,17 +1,17 @@
 use std::borrow::Cow;
-use std::cell::RefCell;
 use std::mem;
+use std::sync::RwLock;
 
 #[derive(Debug, Default)]
 pub struct ModificationTracker {
-	fields: RefCell<Vec<Cow<'static, str>>>,
+	fields: RwLock<Vec<Cow<'static, str>>>,
 }
 
 impl ModificationTracker {
 	pub fn log_modify(&self, name: Cow<'static, str>) {
 		let mut vec = {
 			loop {
-				if let Ok(borrow) = self.fields.try_borrow_mut() {
+				if let Ok(borrow) = self.fields.write() {
 					break borrow;
 				}
 			}
@@ -23,7 +23,7 @@ impl ModificationTracker {
 
 	pub fn log_modify_static(&self, name: &'static str) {
 		let mut vec = loop {
-			if let Ok(borrow) = self.fields.try_borrow_mut() {
+			if let Ok(borrow) = self.fields.write() {
 				break borrow;
 			}
 		};
@@ -35,7 +35,7 @@ impl ModificationTracker {
 
 	pub fn take_modifications(&self) -> Vec<Cow<'static, str>> {
 		let mut vec = loop {
-			if let Ok(borrow) = self.fields.try_borrow_mut() {
+			if let Ok(borrow) = self.fields.write() {
 				break borrow;
 			}
 		};

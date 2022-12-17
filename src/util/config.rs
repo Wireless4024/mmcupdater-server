@@ -59,9 +59,17 @@ pub struct JwtConfig {
 	/// Path to private key for jwt
 	#[serde(default)]
 	pub dec_key: String,
+	/// Valid time in minutes
+	#[serde(default)]
+	pub valid_time: i64,
+	/// Expose token for cross site api use
+	#[serde(default = "default_same_site")]
+	pub same_site: bool,
 }
 
 const fn default_jwt_algo() -> Algorithm { Algorithm::RS256 }
+
+const fn default_same_site() -> bool { true }
 
 pub async fn get_config() -> RwLockReadGuard<'static, ConfigRoot> {
 	CONFIG.read().await
@@ -105,6 +113,8 @@ impl ConfigRoot {
 					algo: default_jwt_algo(),
 					enc_key: String::new(),
 					dec_key: String::new(),
+					valid_time: 10080,
+					same_site: default_same_site(),
 				},
 			},
 			monitor: MonitorConfig {

@@ -1,20 +1,26 @@
 use std::net::SocketAddr;
 use std::path::PathBuf;
 
-use axum::Router;
+use axum::{Extension, Router};
 use axum_server::tls_rustls::RustlsConfig;
+use sqlx::Sqlite;
+use tower_cookies::CookieManagerLayer;
 use tower_http::cors::CorsLayer;
 use tracing::{debug, info};
 
+use crate::db::DbWrapper;
 use crate::manager::instance_manager::InstanceManagerExt;
 use crate::util::config::get_config;
 use crate::util::errors::ErrorWrapper;
 use crate::web::routes::build_route;
 
-pub async fn init(manager: InstanceManagerExt) -> Result<(), ErrorWrapper> {
+pub async fn init(manager: InstanceManagerExt, db: DbWrapper<Sqlite>) -> Result<(), ErrorWrapper> {
 	let cfg = get_config().await;
 	let app = build_route(Router::new());
-	let app = app.layer(CorsLayer::permissive()).layer(manager);
+	let app = app.layer(CorsLayer::permissive())
+		.layer(CookieManagerLayer::new())
+		.layer(manager)
+		.layer(Extension(db));
 	debug!("configuring http server");
 	let defaut_addr = SocketAddr::from((if cfg.http.expose { [0, 0, 0, 0] } else { [127, 0, 0, 1] }, cfg.http.port));
 

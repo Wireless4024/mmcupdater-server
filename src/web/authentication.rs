@@ -8,8 +8,9 @@ use rand::RngCore;
 use tokio::fs::metadata;
 use tracing::{debug, info};
 
-pub use cred::{PasswordCheck, User};
+pub use cred::{PasswordSignResult, User};
 use jwt::{DECODE_KEY, DEFAULT_PRI, DEFAULT_PUB, ENCODE_KEY};
+pub use jwt::{Authorization, sign_jwt};
 
 use crate::util::config::get_config;
 
@@ -100,12 +101,14 @@ mod jwt {
 	use async_trait::async_trait;
 	use axum::extract::FromRequest;
 	use axum::http::{Request, StatusCode};
-	use jsonwebtoken::{decode, DecodingKey, EncodingKey, Validation};
+	use jsonwebtoken::{decode, DecodingKey, encode, EncodingKey, Header, Validation};
 	use serde::{Deserialize, Serialize};
 	use tokio::sync::OnceCell;
 
+	use crate::db::TableMetadata;
 	use crate::util::config::get_config;
 	use crate::util::errors::ErrorWrapper;
+	use crate::web::User;
 
 	pub(crate) static ENCODE_KEY: OnceCell<EncodingKey> = OnceCell::const_new();
 	pub(crate) static DECODE_KEY: OnceCell<DecodingKey> = OnceCell::const_new();
@@ -113,9 +116,19 @@ mod jwt {
 	pub(crate) static DEFAULT_PRI: &str = "jwt.key";
 	pub(crate) static DEFAULT_PUB: &str = "jwt.pub";
 
+	pub async fn sign_jwt(user: &User) -> anyhow::Result<String> {
+		let jwt_algo = {
+			get_config().await.http.jwt.algo
+		};
+		let id = user.pk();
+		Ok(tokio_rayon::spawn(move || {
+			encode(&Header::new(jwt_algo), &JwtContent { id }, ENCODE_KEY.get().expect("Jwt encode key"))
+		}).await?)
+	}
+
 	#[derive(Serialize, Deserialize)]
 	pub struct JwtContent {
-		id: i32,
+		pub id: i64,
 	}
 
 	pub struct Authorization(pub JwtContent);
@@ -152,51 +165,90 @@ mod cred {
 	use std::ops::Deref;
 
 	use argon2::Config;
-	use hashbrown::HashSet;
 	use rand::RngCore;
 	use serde::{Deserialize, Serialize};
+	use sqlx::Sqlite;
+
+	use derive::{ValueAccess, ValueUpdate};
+
+	use crate::db::cache::DbCache;
+	use crate::db::TableMetadata;
 	use crate::mod_field;
-
-	use crate::util::modification::{ModificationTracker};
-
 	use crate::util::config::get_config;
+	use crate::util::modification::ModificationTracker;
 	use crate::util::time::timestamp_minute;
+	use crate::web::authentication::sign_jwt;
 
 	#[cfg_attr(debug_assertions, derive(Debug))]
-	#[derive(Serialize, Deserialize, Default)]
+	#[derive(Serialize, Deserialize, Default, ValueAccess, ValueUpdate)]
 	pub struct User {
 		#[serde(skip)]
 		_mod: ModificationTracker,
-		id: i32,
+		id: i64,
 		wrong_pass: i32,
 		next_attempt: u64,
-		name: String,
-		username: String,
+		pub name: String,
+		pub username: String,
 		password: String,
-		permissions: HashSet<String>,
+		permissions: String,
 	}
 	mod_field! {User._mod}
 
+	impl Clone for User {
+		fn clone(&self) -> Self {
+			Self {
+				_mod: ModificationTracker::default(),
+				id: self.id,
+				wrong_pass: self.wrong_pass,
+				next_attempt: self.next_attempt,
+				name: self.name.clone(),
+				username: self.username.clone(),
+				password: self.password.clone(),
+				permissions: self.permissions.clone(),
+			}
+		}
+	}
+
+	impl TableMetadata<Sqlite> for User {
+		fn pk(&self) -> i64 { self.id }
+
+		fn build_cache() -> DbCache<Self> {
+			DbCache::new(32)
+		}
+
+		fn tb_name() -> &'static str { "User" }
+	}
+
 	#[cfg_attr(debug_assertions, derive(Debug))]
 	#[derive(PartialEq)]
-	pub enum PasswordCheck {
+	pub enum PasswordSignResult {
 		NeedReset,
-		TooManyAttempt,
+		TooManyAttempt(u64),
 		Invalid,
-		Valid,
+		/// It will return empty string if not requested
+		Valid(String),
 	}
 
 	impl User {
-		pub async fn check_pass(&mut self, pwd: Vec<u8>) -> PasswordCheck {
+		pub async fn check_pass_and_sign(&mut self, pwd: Vec<u8>) -> PasswordSignResult {
+			match self.check_pass(pwd).await {
+				PasswordSignResult::Valid(_) => {
+					PasswordSignResult::Valid(sign_jwt(self).await.expect("sign jwt"))
+				}
+				r => r
+			}
+		}
+
+		pub async fn check_pass(&mut self, pwd: Vec<u8>) -> PasswordSignResult {
 			let cfg = get_config().await;
 			let max_retry = cfg.security.max_login_retry;
 			let cooldown = cfg.security.login_cool_down;
 			if self.password.is_empty() {
-				return PasswordCheck::NeedReset;
+				return PasswordSignResult::NeedReset;
 			}
 			if max_retry != -1 && self.wrong_pass >= max_retry {
 				if self.next_attempt > timestamp_minute() {
-					return PasswordCheck::TooManyAttempt;
+					return PasswordSignResult::TooManyAttempt(self.next_attempt);
 				} else {
 					// reset after `next_attempt` is reached
 					self.wrong_pass = 0;
@@ -211,7 +263,7 @@ mod cred {
 			if valid {
 				self.wrong_pass = 0;
 				self.log_modify_static("wrong_pass");
-				PasswordCheck::Valid
+				PasswordSignResult::Valid(String::new())
 			} else {
 				self.wrong_pass += 1;
 				self.log_modify_static("wrong_pass");
@@ -219,7 +271,7 @@ mod cred {
 					self.next_attempt = timestamp_minute() + cooldown;
 					self.log_modify_static("next_attempt");
 				}
-				PasswordCheck::Invalid
+				PasswordSignResult::Invalid
 			}
 		}
 
@@ -238,11 +290,16 @@ mod cred {
 		}
 
 		pub fn has_permission(&self, permission: &str) -> bool {
-			self.permissions.contains(permission)
+			self.permissions.split(",").any(|it| it == permission)
 		}
 
 		pub fn add_permission(&mut self, permission: &str) -> bool {
-			if self.permissions.insert(permission.to_owned()) {
+			if !self.has_permission(permission) {
+				self.permissions.reserve(permission.len() + 1);
+				if !self.permissions.is_empty() {
+					self.permissions.push(',');
+				}
+				self.permissions.push_str(permission);
 				self.log_modify_static("permissions");
 				true
 			} else {
@@ -251,7 +308,14 @@ mod cred {
 		}
 
 		pub fn remove_permission(&mut self, permission: &str) -> bool {
-			if self.permissions.remove(permission) {
+			if self.has_permission(permission) {
+				let perms = self.permissions.split(',').filter(|it| *it != permission).collect::<Vec<_>>();
+				let len = perms.iter().fold(0, |it, s| it + s.len());
+				let mut out = String::with_capacity(len);
+				for p in perms {
+					out.push_str(p);
+				}
+				self.permissions = out;
 				self.log_modify_static("permissions");
 				true
 			} else {
@@ -264,7 +328,7 @@ mod cred {
 	mod test {
 		use crate::util::config::get_config;
 		use crate::util::time::timestamp_minute;
-		use crate::web::authentication::{PasswordCheck, User};
+		use crate::web::authentication::{PasswordSignResult, User};
 
 		#[test]
 		fn test_user_password() {
@@ -272,8 +336,8 @@ mod cred {
 				let mut user = User::default();
 
 				user.set_pass("halo").await.expect("set password");
-				assert_eq!(user.check_pass(b"halo".to_vec()).await, PasswordCheck::Valid);
-				assert_eq!(user.check_pass(b"halow".to_vec()).await, PasswordCheck::Invalid);
+				assert_eq!(user.check_pass(b"halo".to_vec()).await, PasswordSignResult::Valid);
+				assert_eq!(user.check_pass(b"halow".to_vec()).await, PasswordSignResult::Invalid);
 				assert_ne!(user.wrong_pass, 0);
 
 				let cfg = get_config().await;
@@ -283,9 +347,9 @@ mod cred {
 				drop(cfg);
 				for _ in 1..max_retry {
 					let res = user.check_pass(b"halow".to_vec()).await;
-					assert_eq!(res, PasswordCheck::Invalid);
+					assert_eq!(res, PasswordSignResult::Invalid);
 				}
-				assert_eq!(user.check_pass(b"halow".to_vec()).await, PasswordCheck::TooManyAttempt);
+				assert_eq!(user.check_pass(b"halow".to_vec()).await, PasswordSignResult::TooManyAttempt);
 				assert!(user.next_attempt >= (now + next_retry))
 			})
 		}

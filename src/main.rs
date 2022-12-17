@@ -41,15 +41,13 @@ mod db;
 
 #[tokio::main]
 async fn main() -> Result<()> {
-	dotenv::dotenv().ok();
-
 	let _guard = logger::init();
 	info!("starting MMC Updater server {}", GlobalInfo::VERSION);
 	config::load_config().await;
 	JavaManager::scan().await?;
-
 	let mut manager = InstanceManager::new();
 	manager.init().await?;
-	http::init(manager.into_extension()).await?;
+	let db = db::init().await?;
+	http::init(manager.into_extension(), db).await?;
 	Ok(())
 }

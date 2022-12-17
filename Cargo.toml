@@ -4,6 +4,8 @@ version = "0.2.0"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[workspace]
+members = ["base", "derive"]
 
 [dependencies]
 # Error handling
@@ -17,7 +19,9 @@ hyper = "0.14"
 reqwest = { version = "0.11", features = ["async-compression", "rustls", "json", "stream"] }
 tower = "0.4"
 tower-http = { version = "0.3", features = ["fs", "cors", "tracing"] }
+tower-cookies = "0.8"
 # auth
+cookie = "0.16"
 jsonwebtoken = "8.1"
 openssl = { version = "0.10", features = ["vendored"] }
 rust-argon2 = "1.0"
@@ -36,10 +40,9 @@ bstr = "1.0"
 bytes = { version = "1.1", features = [] }
 
 # Replacement
-hashbrown = { version = "0.13", features = ["serde"] }
-
-# Configuration
-dotenv = "0.15"
+fxhash = "0.2"
+dashmap = "5.4"
+hashbrown = { version = "0.13", features = ["serde", "ahash"] }
 
 # Runtime
 tokio = { version = "1", features = ["rt-multi-thread", "fs", "process", "macros", "sync", "parking_lot", "io-util"] }
@@ -56,6 +59,11 @@ regex = { version = "1.5" }
 sys-info = "0.9"
 tar = "0.4"
 zip = "0.6"
+
+# Database
+sqlx = { version = "0.6", features = ["sqlite", "runtime-tokio-native-tls", "macros"] }
+base = { path = "base" }
+derive = { path = "derive" }
 
 # Logging
 tracing = { version = "0.1", features = ["release_max_level_info"] }

@@ -6,9 +6,12 @@ use tracing::log::debug;
 use crate::info::DetailedInfo;
 use crate::util::errors::{HttpResult, ResponseResult};
 
+mod auth;
+
 pub fn get_v1() -> Router {
 	debug!("Configuring v1 routes");
 	Router::new()
+		.nest("/auth", auth::build())
 		.route("/err", get(err))
 		.route("/success", get(success))
 		.route("/info", get(info))

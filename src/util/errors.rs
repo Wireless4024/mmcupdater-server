@@ -33,10 +33,10 @@ pub struct HttpResult<T: Serialize, M: Serialize> {
 	result: Option<T>,
 }
 
-pub type ResponseResult<T, M = String> = std::result::Result<Json<HttpResult<T, M>>, ErrorWrapper>;
+pub type ResponseResult<T, M = &'static str> = std::result::Result<Json<HttpResult<T, M>>, ErrorWrapper>;
 
 impl<M: Serialize> HttpResult<String, M> {
-	pub fn err_raw(message: M) -> Json<Self> {
+	pub const fn err_raw(message: M) -> Json<Self> {
 		Json(Self {
 			success: false,
 			message: Some(message),
@@ -46,8 +46,8 @@ impl<M: Serialize> HttpResult<String, M> {
 	}
 }
 
-impl<T: Serialize, M: Serialize> HttpResult<T, M> {
-	pub fn success(data: T) -> std::result::Result<Json<Self>, ErrorWrapper> {
+impl<T: Serialize> HttpResult<T, &'static str> {
+	pub const fn success(data: T) -> std::result::Result<Json<Self>, ErrorWrapper> {
 		Ok(Json(Self {
 			success: true,
 			message: None,
@@ -56,7 +56,18 @@ impl<T: Serialize, M: Serialize> HttpResult<T, M> {
 		}))
 	}
 
-	pub fn err(message: M) -> std::result::Result<Json<Self>, ErrorWrapper> {
+	pub const fn success_raw(result: T) -> Json<Self> {
+		Json(Self {
+			success: false,
+			message: None,
+			err_cause: None,
+			result: Some(result),
+		})
+	}
+}
+
+impl<T: Serialize, M: Serialize> HttpResult<T, M> {
+	pub const fn err(message: M) -> std::result::Result<Json<Self>, ErrorWrapper> {
 		Ok(Json(Self {
 			success: false,
 			message: Some(message),
@@ -65,7 +76,7 @@ impl<T: Serialize, M: Serialize> HttpResult<T, M> {
 		}))
 	}
 
-	pub fn err_with_cause(message: M, cause: String) -> std::result::Result<Json<Self>, ErrorWrapper> {
+	pub const fn err_with_cause(message: M, cause: String) -> std::result::Result<Json<Self>, ErrorWrapper> {
 		Ok(Json(Self {
 			success: false,
 			message: Some(message),
@@ -85,8 +96,10 @@ pub enum ErrorWrapper<C: IntoResponse + Debug = &'static str> {
 	Reqwest(#[from] reqwest::Error),
 	#[error("Hyper")]
 	Hyper(#[from] hyper::Error),
-	#[error("Any how")]
+	#[error("Anyhow")]
 	Anyhow(#[from] anyhow::Error),
+	#[error("Anyhow")]
+	Database(#[from] sqlx::Error),
 	#[error("Unknown Error")]
 	Other(#[from] Box<dyn Error + Send + Sync>),
 	#[error("Custom Error")]
@@ -123,6 +136,9 @@ impl From<ErrorWrapper> for io::Error {
 				io::Error::new(ErrorKind::Other, err)
 			}
 			ErrorWrapper::Anyhow(err) => {
+				io::Error::new(ErrorKind::Other, err)
+			}
+			ErrorWrapper::Database(err) => {
 				io::Error::new(ErrorKind::Other, err)
 			}
 			ErrorWrapper::Custom(_, msg) => {
@@ -170,6 +186,9 @@ impl<C: IntoResponse + Debug> IntoResponse for ErrorWrapper<C> {
 					write_err!(writer, err);
 				}
 				ErrorWrapper::Hyper(err) => {
+					write_err!(writer, err);
+				}
+				ErrorWrapper::Database(err) => {
 					write_err!(writer, err);
 				}
 				ErrorWrapper::Anyhow(err) => {
