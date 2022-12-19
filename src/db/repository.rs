@@ -11,7 +11,7 @@ use sqlx::query::Query;
 use sqlx::sqlite::{SqliteArguments, SqliteColumn, SqliteRow, SqliteValueRef};
 use tokio::time::sleep;
 
-use base::{RustPrimitiveValueRef, ValueAccess};
+use base::value::{RustPrimitiveValueRef, ValueAccess};
 
 use crate::db::cache::DbCache;
 use crate::db::DbWrapper;
@@ -62,17 +62,24 @@ impl<T> Repository<Sqlite, T>
 		};
 		if cache.should_handle() {
 			let repo = repo.clone();
+			const PURGE_CACHE_WHEN: usize = 15;
 			tokio::spawn(async move {
+				let mut counter = 0;
 				loop {
 					sleep(Duration::from_secs(10)).await;
 					let queue = cache.take_queue().await;
 					if !queue.is_empty() {
 						for x in queue {
-							if let Some(it) = cache.get(x) {
+							if let Some(it) = cache.remove(x) {
 								repo.save(&it).await.ok();
 							}
 						}
 					}
+					if counter == PURGE_CACHE_WHEN {
+						counter = 0;
+						cache.purge();
+					}
+					counter += 1
 				}
 			});
 		}
@@ -134,12 +141,11 @@ impl<T> Repository<Sqlite, T>
 	}
 
 	pub async fn update(&self, val: &T) -> Result<()> {
-		if let Some(cache) = &self.cache {
-			if val.pk() != 0 {
-				cache.put(val.pk(), val.clone()).await;
-			} else {
-				self.perform_insert(val).await?;
-			}
+		if val.pk() == 0 {
+			self.perform_insert(val).await?;
+			Ok(())
+		} else if let Some(cache) = &self.cache {
+			cache.put(val.pk(), val.clone()).await;
 			Ok(())
 		} else {
 			self.save(val).await
@@ -180,9 +186,24 @@ impl<T> Repository<Sqlite, T>
 	}
 
 	async fn perform_insert(&self, val: &T) -> Result<()> {
-		let mut keys = get_field_names::<T>().to_vec();
+		self.perform_insert_by(get_field_names::<T>(), val).await
+	}
+
+	pub async fn perform_insert_minimal(&self, val: &T) -> Result<()> where T: Deref<Target=ModificationTracker> {
+		let modified = val.take_modifications();
+		if modified.is_empty() {
+			self.perform_insert(val).await
+		} else {
+			self.perform_insert_by(&modified.iter().map(|it| it.as_ref()).collect::<Vec<_>>(), val).await
+		}
+	}
+
+	async fn perform_insert_by(&self, keys: &[&str], val: &T) -> Result<()> {
 		let pk_name = T::pk_name();
-		keys.remove(keys.iter().position(|it| *it == pk_name).unwrap());
+		let mut keys = keys.to_vec();
+		if let Some(idx) = keys.iter().position(|it| *it == pk_name) {
+			keys.remove(idx);
+		}
 		let mut fields = keys.iter();
 
 		let mut query = String::with_capacity(64);
@@ -475,16 +496,6 @@ struct ColDeserializer<'de>(SqliteValueRef<'de>);
 struct ColumnDeserializer<'de>(&'de SqliteColumn);
 
 macro_rules! decode {
-    ($self:ident,$iden:ident,$vis:ident) => {
-	    {
-		    if $self.0.is_null() { 
-				return $vis.visit_none();
-			}
-		    $iden::decode($self.0).map_err(|it| DeserializeError(it.to_string()))?
-	    }
-    };
-}
-macro_rules! try_unwrap {
     ($self:ident,$iden:ident,$vis:ident) => {
 	    {
 		    if $self.0.is_null() { 

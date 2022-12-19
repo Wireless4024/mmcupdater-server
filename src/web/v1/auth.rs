@@ -1,21 +1,24 @@
 use axum::{Json, Router};
-use axum::http::StatusCode;
+use axum::extract::Query;
+use axum::http::{HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
-use cookie::SameSite;
-use cookie::time::Duration;
 use serde::Deserialize;
-use tower_cookies::{Cookie, Cookies};
+use tracing::log::debug;
 
 use crate::db::DB;
+use crate::entity::user::{PasswordSignResult, User};
 use crate::util::config::get_config;
 use crate::util::errors::HttpResult;
-use crate::web::authentication::{Authorization, PasswordSignResult};
-use crate::web::User;
+use crate::util::time::timestamp_minute;
+use crate::web::authentication::Authorization;
 
 pub fn build() -> Router {
+	debug!("Configuring auth routes");
 	Router::new()
 		.route("/login", post(login))
+		.route("/refresh", get(refresh_token))
+		.route("/logout", get(logout))
 		.route("/ping", get(ping))
 }
 
@@ -27,12 +30,11 @@ struct LoginPayload {
 	set: bool,
 }
 
-const LOGIN_FAIL: (StatusCode, Json<HttpResult<String, &str>>) = (StatusCode::FORBIDDEN, HttpResult::err_raw("password.invalid"));
-const LOGIN_TOO_MANY: (StatusCode, Json<HttpResult<String, &str>>) = (StatusCode::FORBIDDEN, HttpResult::err_raw("password.too_many"));
-const LOGIN_NEED_RESET: (StatusCode, Json<HttpResult<String, &str>>) = (StatusCode::FORBIDDEN, HttpResult::err_raw("password.need_reset"));
+const LOGIN_FAIL: (StatusCode, Json<HttpResult<String, &str>>) = (StatusCode::FORBIDDEN, HttpResult::err_raw("auth.invalid"));
+const LOGIN_TOO_MANY: (StatusCode, Json<HttpResult<String, &str>>) = (StatusCode::FORBIDDEN, HttpResult::err_raw("auth.too_many"));
+const LOGIN_NEED_RESET: (StatusCode, Json<HttpResult<String, &str>>) = (StatusCode::FORBIDDEN, HttpResult::err_raw("auth.need_reset"));
 
 async fn login(db: DB,
-               cookie: Cookies,
                Json(LoginPayload { username, password, set }): Json<LoginPayload>) -> Response {
 	let repo = db.repo_with_cache::<User>();
 	let mut user = User::default();
@@ -57,15 +59,14 @@ async fn login(db: DB,
 					if set {
 						let cfg = get_config().await;
 
-						cookie.add(Cookie::build("authorization", jwt)
-							.secure(cfg.http.secure)
-							.http_only(true)
-							.same_site(if cfg.http.jwt.same_site { SameSite::Strict } else { SameSite::None })
-							.max_age(Duration::minutes(cfg.http.jwt.valid_time))
-							.finish());
+						let max_age = cfg.http.jwt.valid_time * 60;
 						drop(cfg);
-
-						(StatusCode::OK, HttpResult::success_raw("Ok")).into_response()
+						let mut resp = (StatusCode::OK, HttpResult::success_raw("Ok")).into_response();
+						resp.headers_mut().insert("set-cookie",
+						                          HeaderValue::from_str(
+							                          &format!("authorization={jwt}; Path=/; Max-Age={max_age}; Secure; SameSite=None; HttpOnly")
+						                          ).unwrap());
+						resp
 					} else {
 						(StatusCode::OK, HttpResult::success_raw(jwt)).into_response()
 					}
@@ -73,6 +74,50 @@ async fn login(db: DB,
 			}
 		}
 	}
+}
+
+#[derive(Deserialize)]
+struct Set {
+	#[serde(default = "default_set")]
+	set: bool,
+}
+
+fn default_set() -> bool {
+	true
+}
+
+impl Default for Set {
+	fn default() -> Self {
+		Self {
+			set: true
+		}
+	}
+}
+
+async fn refresh_token(Query(Set { set }): Query<Set>, jwt: Authorization) -> impl IntoResponse {
+	let jwt = jwt.refresh().await;
+	if set {
+		let max_age = {
+			let exp_mins = get_config().await.http.jwt.valid_time;
+			(timestamp_minute() + exp_mins) * 60
+		};
+		let mut resp = (StatusCode::OK, HttpResult::success_raw("Ok")).into_response();
+		resp.headers_mut().insert("set-cookie",
+		                          HeaderValue::from_str(
+			                          &format!("authorization={jwt}; Path=/; Max-Age={max_age}; Secure; SameSite=None; HttpOnly")
+		                          ).unwrap());
+		resp
+	} else {
+		(StatusCode::OK, HttpResult::success_raw(jwt)).into_response()
+	}
+}
+
+async fn logout(_: Authorization) -> impl IntoResponse {
+	let mut resp = (StatusCode::OK, HttpResult::success_raw("Ok")).into_response();
+	resp.headers_mut().insert("set-cookie", HeaderValue::from_str(
+		"authorization=; Path=/; Max-Age=0; Secure; SameSite=None; HttpOnly"
+	).unwrap());
+	resp
 }
 
 async fn ping(_: Authorization) -> impl IntoResponse {

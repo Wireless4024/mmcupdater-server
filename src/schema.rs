@@ -1,8 +1,3 @@
-use std::collections::HashMap;
-
-use serde::{Deserialize, Serialize};
-
-use crate::instance::mc_mod::MinecraftMod;
 /*
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct MinecraftServerConfig {

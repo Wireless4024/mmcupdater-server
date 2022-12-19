@@ -4,12 +4,12 @@ use std::sync::Arc;
 
 use axum::Extension;
 use dashmap::DashMap;
-use serde::{Deserialize, Serialize};
+use serde::{Serialize};
 use serde::de::DeserializeOwned;
 use sqlx::{Database, migrate, Pool, Sqlite};
 use tokio::fs::{File, metadata};
+use base::value::ValueAccess;
 
-use base::ValueAccess;
 pub use repository::Repository;
 pub use table_meta::TableMetadata;
 
@@ -39,6 +39,10 @@ impl<D: Database> Clone for DbWrapper<D> {
 }
 
 impl<D: Database> DbWrapper<D> {
+	pub async fn close(&self){
+		self.pool.close().await
+	}
+	
 	pub fn repo<T>(&self) -> Repository<D, T> where T: TableMetadata<D> + Serialize + DeserializeOwned + Send + Sync + 'static {
 		Repository::new(self)
 	}

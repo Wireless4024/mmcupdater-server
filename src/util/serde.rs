@@ -4,8 +4,7 @@ use std::fmt::{Debug, Display, Formatter};
 use anyhow::anyhow;
 use hashbrown::HashSet;
 use serde::{Deserialize, Deserializer, Serializer};
-use serde::de::{SeqAccess, Visitor};
-use serde::ser::SerializeSeq;
+use serde::de::{Visitor};
 use sqlx::Error;
 use thiserror::Error;
 

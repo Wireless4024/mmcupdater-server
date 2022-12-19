@@ -24,6 +24,7 @@ pub mod safe_writer;
 pub mod time;
 pub mod modification;
 pub mod serde;
+pub mod string;
 
 pub async fn get_zip_file(path: PathBuf) -> Result<PathBuf> {
 	if path.is_file() {

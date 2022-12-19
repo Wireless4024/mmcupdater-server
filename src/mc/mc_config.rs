@@ -16,7 +16,6 @@ use zip::result::ZipResult;
 use zip::write::FileOptions;
 
 use crate::file_scanner::scan_recursive;
-use crate::util::errors::zip_to_io;
 use crate::util::java::JavaManager;
 
 static DEFAULT_JVM_ARGS: &str = include_str!("../resources/default_jvm_args.txt");

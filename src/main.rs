@@ -4,19 +4,7 @@
 
 extern crate core;
 
-use std::str::FromStr;
-
-use anyhow::__private::kind::AdhocKind;
 use anyhow::Result;
-use axum::extract::FromRequest;
-use axum::response::IntoResponse;
-use axum::routing::{delete, post, put};
-use bstr::ByteSlice;
-use futures::StreamExt;
-use rand::prelude::*;
-use serde::{Deserialize, Serialize};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tower::util::ServiceExt;
 use tracing::info;
 
 use crate::info::GlobalInfo;
@@ -38,16 +26,27 @@ mod mc;
 mod web;
 mod info;
 mod db;
+mod entity;
+mod cli;
 
-#[tokio::main]
-async fn main() -> Result<()> {
+fn main() -> Result<()> {
+	cli::intercept();
+
+	let rt = tokio::runtime::Builder::new_multi_thread()
+		.enable_all()
+		.global_queue_interval(255)
+		.build()?;
+
 	let _guard = logger::init();
-	info!("starting MMC Updater server {}", GlobalInfo::VERSION);
-	config::load_config().await;
-	JavaManager::scan().await?;
-	let mut manager = InstanceManager::new();
-	manager.init().await?;
-	let db = db::init().await?;
-	http::init(manager.into_extension(), db).await?;
-	Ok(())
+
+	rt.block_on(async {
+		info!("starting MMC Updater server {}", GlobalInfo::VERSION);
+		config::load_config().await;
+		JavaManager::scan().await?;
+		let mut manager = InstanceManager::new();
+		manager.init().await?;
+		let db = db::init().await?;
+		http::init(manager.into_extension(), db).await?;
+		Result::<()>::Ok(())
+	})
 }

@@ -1,11 +1,14 @@
 use std::{env, mem};
+use std::borrow::Cow;
 use std::fs::File;
 
+use axum::http::{HeaderValue, Method};
 use jsonwebtoken::Algorithm;
 use serde::{Deserialize, Serialize};
 use serde_yaml::{Mapping, Value};
 use tokio::sync::{RwLock, RwLockReadGuard};
 use tokio::task::{JoinError, spawn_blocking};
+use tower_http::cors::{AllowHeaders, CorsLayer};
 use tracing::{error, info};
 
 use crate::util::fs::create_if_not_existed;
@@ -15,12 +18,15 @@ static CONFIG: RwLock<ConfigRoot> = RwLock::const_new(ConfigRoot::const_default(
 
 #[derive(Serialize, Deserialize, Debug, Default)]
 pub struct ConfigRoot {
+	#[serde(default)]
 	pub http: HttpConfig,
+	#[serde(default)]
 	pub monitor: MonitorConfig,
+	#[serde(default)]
 	pub security: Security,
 }
 
-#[derive(Serialize, Deserialize, Debug, Default)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct HttpConfig {
 	/// Accept client from anywhere? leave it to false if you want to reverse-proxy to this service
 	#[serde(default)]
@@ -44,11 +50,30 @@ pub struct HttpConfig {
 	/// config related to jwt
 	#[serde(default)]
 	pub jwt: JwtConfig,
+
+	/// config related to jwt
+	#[serde(default)]
+	pub cors: Cors,
 }
 
 const fn default_port() -> u16 { 8181 }
 
-#[derive(Serialize, Deserialize, Debug, Default)]
+impl Default for HttpConfig {
+	fn default() -> Self {
+		Self {
+			expose: false,
+			port: default_port(),
+			socket: String::new(),
+			secure: false,
+			cert_file: None,
+			cert_key: None,
+			jwt: Default::default(),
+			cors: Default::default(),
+		}
+	}
+}
+
+#[derive(Serialize, Deserialize, Debug)]
 pub struct JwtConfig {
 	/// Jwt algorithm (modify this if you need compatibility or security)
 	#[serde(default = "default_jwt_algo")]
@@ -60,14 +85,28 @@ pub struct JwtConfig {
 	#[serde(default)]
 	pub dec_key: String,
 	/// Valid time in minutes
-	#[serde(default)]
-	pub valid_time: i64,
+	#[serde(default = "default_valid_time")]
+	pub valid_time: u64,
 	/// Expose token for cross site api use
 	#[serde(default = "default_same_site")]
 	pub same_site: bool,
 }
 
+impl Default for JwtConfig {
+	fn default() -> Self {
+		Self {
+			algo: default_jwt_algo(),
+			enc_key: String::new(),
+			dec_key: String::new(),
+			valid_time: default_valid_time(),
+			same_site: default_same_site(),
+		}
+	}
+}
+
 const fn default_jwt_algo() -> Algorithm { Algorithm::RS256 }
+
+const fn default_valid_time() -> u64 { 60 * 24 * 7 }
 
 const fn default_same_site() -> bool { true }
 
@@ -87,7 +126,7 @@ pub struct PrometheusConfig {
 	pub enable: bool,
 }
 
-#[derive(Serialize, Deserialize, Debug, Default)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct Security {
 	#[serde(default = "default_max_login_retry")]
 	pub max_login_retry: i32,
@@ -95,9 +134,60 @@ pub struct Security {
 	pub login_cool_down: u64,
 }
 
+impl Default for Security {
+	fn default() -> Self {
+		Self {
+			max_login_retry: default_max_login_retry(),
+			login_cool_down: default_login_cool_down(),
+		}
+	}
+}
+
 const fn default_max_login_retry() -> i32 { 15 }
 
 const fn default_login_cool_down() -> u64 { 30 }
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct Cors {
+	/// list of allowed methods send by cors header
+	#[serde(default = "default_cors_methods")]
+	methods: Cow<'static, [Cow<'static, str>]>,
+	/// list of allowed origins send by cors header
+	#[serde(default)]
+	origins: Vec<String>,
+}
+
+const fn default_cors_methods() -> Cow<'static, [Cow<'static, str>]> {
+	Cow::Borrowed([
+		Cow::Borrowed("GET"),
+		Cow::Borrowed("POST"),
+		Cow::Borrowed("HEAD"),
+		Cow::Borrowed("OPTION"),
+	].as_slice())
+}
+
+impl Default for Cors {
+	fn default() -> Self {
+		Self {
+			methods: default_cors_methods(),
+			origins: vec![],
+		}
+	}
+}
+
+impl Cors {
+	pub fn build(&self) -> CorsLayer {
+		let mut cors = CorsLayer::new();
+		for m in self.methods.iter() {
+			cors = cors.allow_methods(Method::from_bytes(m.as_bytes()).unwrap());
+		}
+		for o in self.origins.iter() {
+			cors = cors.allow_origin(HeaderValue::from_str(o).unwrap());
+		}
+		cors.allow_headers(AllowHeaders::mirror_request())
+			.allow_credentials(true)
+	}
+}
 
 impl ConfigRoot {
 	pub const fn const_default() -> Self {
@@ -113,8 +203,12 @@ impl ConfigRoot {
 					algo: default_jwt_algo(),
 					enc_key: String::new(),
 					dec_key: String::new(),
-					valid_time: 10080,
+					valid_time: default_valid_time(),
 					same_site: default_same_site(),
+				},
+				cors: Cors {
+					methods: default_cors_methods(),
+					origins: Vec::new(),
 				},
 			},
 			monitor: MonitorConfig {
@@ -144,6 +238,7 @@ pub async fn load_config() {
 			error!("Failed to load config; using default config")
 		}
 	} else {
+		info!("config not found, generating new config file..");
 		create_if_not_existed("config.yml", DEFAULT_CONFIG_YML)
 			.await
 			.expect("generate config file");

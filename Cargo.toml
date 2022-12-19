@@ -70,6 +70,10 @@ tracing = { version = "0.1", features = ["release_max_level_info"] }
 tracing-appender = "0.2"
 tracing-subscriber = "0.3"
 
+# Cli
+clap = { version = "4.0", features = ["derive"] }
+rpassword = "7.2"
+
 # Shared lib
 pedestal-rs = { git = "https://github.com/Wireless4024/pedestal-rs.git", rev = "8d647244817d4f11efa666f9ad189c5be60d9785", features = ["fs", "mutation", "async"] }
 

@@ -45,6 +45,20 @@ http:
     # Path to public key
     # type: string
     dec_key: ''
+    # Valid time for jwt token
+    # type: number
+    valid_time: 10080
+  cors:    
+    # List of allowed method send by cors header
+    # type: [string]
+    methods: 
+      - GET
+      - POST
+      - HEAD
+      - OPTION
+    # List of allowed origin send by cors header
+    # type: [string]
+    origins: []
 
 # [WIP]
 # Config for monitoring service

@@ -58,7 +58,7 @@ impl<T: Serialize> HttpResult<T, &'static str> {
 
 	pub const fn success_raw(result: T) -> Json<Self> {
 		Json(Self {
-			success: false,
+			success: true,
 			message: None,
 			err_cause: None,
 			result: Some(result),

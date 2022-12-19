@@ -7,11 +7,15 @@ use crate::info::DetailedInfo;
 use crate::util::errors::{HttpResult, ResponseResult};
 
 mod auth;
+mod instance;
+mod user;
 
 pub fn get_v1() -> Router {
 	debug!("Configuring v1 routes");
 	Router::new()
 		.nest("/auth", auth::build())
+		.nest("/instance", instance::build())
+		.nest("/user", user::build())
 		.route("/err", get(err))
 		.route("/success", get(success))
 		.route("/info", get(info))

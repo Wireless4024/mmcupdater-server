@@ -1,11 +1,9 @@
 use std::future::Future;
-use std::io;
-use std::io::{ErrorKind};
-use anyhow::{bail, Result};
 use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
 
+use anyhow::{bail, Result};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, BufWriter};
 use tokio::process::{Child, ChildStdin, ChildStdout};
 use tokio::sync::{Mutex, RwLock};

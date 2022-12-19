@@ -1,0 +1,13 @@
+body {
+	font-family: sans-serif;
+	margin: 0;
+}
+
+.hidden {
+	opacity: 0;
+}
+
+.center {
+	text-align: center;
+	margin-left: auto;
+}

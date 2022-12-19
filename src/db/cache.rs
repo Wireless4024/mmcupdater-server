@@ -8,7 +8,7 @@ use dashmap::mapref::one::Ref;
 use fxhash::FxBuildHasher;
 use tokio::sync::RwLock;
 
-use base::{ValueAccess, ValueUpdate};
+use base::value::{ValueAccess, ValueUpdate};
 
 pub struct DbCache<T> {
 	table: DashMap<i64, T, FxBuildHasher>,
@@ -38,8 +38,10 @@ impl<T> DbCache<T> {
 		self.table.get(&id)
 	}
 
-	pub fn remove(&self, id: i64) {
-		self.table.remove(&id);
+	pub fn remove(&self, id: i64) -> Option<T> {
+		self.table
+			.remove(&id)
+			.map(|it| it.1)
 	}
 
 	pub async fn put(&self, id: i64, value: T) {
@@ -62,6 +64,10 @@ impl<T> DbCache<T> {
 		let cap = q.capacity();
 		// Safety: if nobody taken a queue it won't empty
 		mem::replace(&mut *q, DashSet::with_capacity_and_hasher(cap, FxBuildHasher::default()))
+	}
+	
+	pub fn purge(&self){
+		self.table.clear();
 	}
 }
 

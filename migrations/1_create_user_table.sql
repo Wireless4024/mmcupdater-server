@@ -11,5 +11,5 @@ CREATE TABLE IF NOT EXISTS User
 -- system user can't auth forever
 INSERT INTO User (id, name, username, permissions, next_attempt)
 VALUES (0, 'SYSTEM', 'SYSTEM', '*', 9223372036854775807);
-INSERT INTO User (id, name, username, permissions, next_attempt)
-VALUES (0, 'Admin', 'SYSTEM', '*', 9223372036854775807)
+INSERT INTO User (id, name, username, permissions)
+VALUES (1, 'Admin', 'admin', '*');

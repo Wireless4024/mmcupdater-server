@@ -1,4 +1,4 @@
-pub(crate) use authentication::User;
+pub(crate) use authentication::{sign_jwt};
 
 pub mod http;
 
