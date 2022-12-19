@@ -77,8 +77,8 @@ impl<T> Repository<Sqlite, T>
 							}
 						}
 					}
-					if counter == PURGE_CACHE_WHEN {
-						debug!("purging cache for {}", T::tb_name());
+					if counter == PURGE_CACHE_WHEN && !cache.is_empty() {
+						trace!("purging cache for {}", T::tb_name());
 						counter = 0;
 						cache.purge();
 					}
@@ -118,7 +118,7 @@ impl<T> Repository<Sqlite, T>
 	}
 
 	pub async fn get_by<'a, 'b: 'a>(&'a self, keys: &'static [&'static str], val: &'b T) -> Option<T> {
-		if keys.is_empty() { 
+		if keys.is_empty() {
 			return None;
 		}
 		let mut fields = keys.iter();

@@ -25,6 +25,10 @@ impl<T> DbCache<T> {
 		}
 	}
 
+	pub fn is_empty(&self) -> bool {
+		self.table.is_empty()
+	}
+
 	pub fn should_handle(&self) -> bool {
 		if self.has_handle.load(Ordering::Relaxed) {
 			false
@@ -65,8 +69,8 @@ impl<T> DbCache<T> {
 		// Safety: if nobody taken a queue it won't empty
 		mem::replace(&mut *q, DashSet::with_capacity_and_hasher(cap, FxBuildHasher::default()))
 	}
-	
-	pub fn purge(&self){
+
+	pub fn purge(&self) {
 		self.table.clear();
 	}
 }
