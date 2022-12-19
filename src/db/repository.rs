@@ -10,6 +10,7 @@ use sqlx::{Column, Database, Decode, Executor, Row, Sqlite, Statement, TypeInfo,
 use sqlx::query::Query;
 use sqlx::sqlite::{SqliteArguments, SqliteColumn, SqliteRow, SqliteValueRef};
 use tokio::time::sleep;
+use tracing::{debug, trace};
 
 use base::value::{RustPrimitiveValueRef, ValueAccess};
 
@@ -64,6 +65,7 @@ impl<T> Repository<Sqlite, T>
 			let repo = repo.clone();
 			const PURGE_CACHE_WHEN: usize = 15;
 			tokio::spawn(async move {
+				debug!("spawning cache service for {}", T::tb_name());
 				let mut counter = 0;
 				loop {
 					sleep(Duration::from_secs(10)).await;
@@ -76,10 +78,11 @@ impl<T> Repository<Sqlite, T>
 						}
 					}
 					if counter == PURGE_CACHE_WHEN {
+						debug!("purging cache for {}", T::tb_name());
 						counter = 0;
 						cache.purge();
 					}
-					counter += 1
+					counter += 1;
 				}
 			});
 		}
@@ -87,12 +90,15 @@ impl<T> Repository<Sqlite, T>
 	}
 
 	pub async fn create(&self) -> Result<T, ErrorWrapper> {
+		trace!("create new object in {}", T::tb_name());
 		let stmt = self.con.prepare("INSERT INTO \"{}\" DEFAULT VALUES RETURNING *").await?;
 		let row = stmt.query().fetch_one(&**self.con).await?;
 		Ok(T::deserialize(RowDeserializer(row, 0))?)
 	}
 
 	pub async fn get(&self, pk: i64) -> Option<T> {
+		trace!("query {} id={pk}", T::tb_name());
+
 		if let Some(cache) = &self.cache {
 			if let Some(item) = cache.get(pk) {
 				return Some(item.value().clone());
@@ -112,8 +118,11 @@ impl<T> Repository<Sqlite, T>
 	}
 
 	pub async fn get_by<'a, 'b: 'a>(&'a self, keys: &'static [&'static str], val: &'b T) -> Option<T> {
+		if keys.is_empty() { 
+			return None;
+		}
 		let mut fields = keys.iter();
-
+		trace!("query {} {:?}={:?}", T::tb_name(), keys[0], val.get_value(keys[0]).unwrap());
 		let mut query = String::with_capacity(64);
 		query.push_str("SELECT * FROM ");
 		query.push_str(T::tb_name());
@@ -251,6 +260,7 @@ impl<T> Repository<Sqlite, T>
 	}
 
 	pub async fn delete(&self, pk: i64) -> Result<bool, ErrorWrapper> {
+		trace!("delete {} id={pk}", T::tb_name());
 		if let Some(cache) = &self.cache {
 			cache.remove(pk);
 		}

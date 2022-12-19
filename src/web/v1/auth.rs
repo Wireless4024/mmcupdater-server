@@ -43,6 +43,7 @@ async fn login(db: DB,
 		None => { LOGIN_FAIL.into_response() }
 		Some(mut user) => {
 			let pass_verify = user.check_pass_and_sign(password.into_bytes()).await;
+			let username = user.username.clone();
 			repo.update_minimal_owned(user).await.ok();
 			match pass_verify {
 				PasswordSignResult::NeedReset => {
@@ -56,6 +57,7 @@ async fn login(db: DB,
 					LOGIN_FAIL.into_response()
 				}
 				PasswordSignResult::Valid(jwt) => {
+					debug!("user `{username}` has been logged in");
 					if set {
 						let cfg = get_config().await;
 

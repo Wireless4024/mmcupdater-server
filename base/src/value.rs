@@ -1,3 +1,5 @@
+use std::fmt::{Debug, Formatter};
+
 pub enum RustPrimitiveValueRef<'a> {
 	Integer(Integer),
 	Float(Float),
@@ -65,6 +67,37 @@ pub enum Float {
 	F64(f64),
 }
 
+impl Debug for RustPrimitiveValueRef<'_> {
+	fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+		match self {
+			RustPrimitiveValueRef::Integer(i) => {
+				match i {
+					Integer::I8(i) => { Debug::fmt(i, f) }
+					Integer::I16(i) => { Debug::fmt(i, f) }
+					Integer::I32(i) => { Debug::fmt(i, f) }
+					Integer::I64(i) => { Debug::fmt(i, f) }
+					Integer::I128(i) => { Debug::fmt(i, f) }
+					Integer::ISize(i) => { Debug::fmt(i, f) }
+					Integer::U8(i) => { Debug::fmt(i, f) }
+					Integer::U16(i) => { Debug::fmt(i, f) }
+					Integer::U32(i) => { Debug::fmt(i, f) }
+					Integer::U64(i) => { Debug::fmt(i, f) }
+					Integer::U128(i) => { Debug::fmt(i, f) }
+					Integer::USize(i) => { Debug::fmt(i, f) }
+				}
+			}
+			RustPrimitiveValueRef::Float(i) => {
+				Debug::fmt(&i.as_f64(), f)
+			}
+			RustPrimitiveValueRef::String(s) => {
+				Debug::fmt(s, f)
+			}
+			RustPrimitiveValueRef::Bytes(b) => {
+				Debug::fmt(b, f)
+			}
+		}
+	}
+}
 
 macro_rules! cast_int {
     ($it:ident) => {
