@@ -6,17 +6,25 @@
 	import {isLoading} from "svelte-i18n"
 	import Router      from "svelte-spa-router"
 	import {Progress}  from "sveltestrap"
+	import {check}     from "./api/api"
 	import {USER}      from "./api/shared_state"
 	import {get_user}  from "./api/user"
-	import "./lang/lang"
+	import {load}      from "./lang/lang"
 	import AppBar      from "./lib/AppBar.svelte"
 	import routes      from "./util/routes.js"
 
-	onMount(function () {
-		get_user().then(user => USER.set(user))
+	let finished = false
+	onMount(async function () {
+		try {
+			check()
+				.then(() => { get_user().then(user => USER.set(user))})
+				.catch()
+		} catch (e) {}
+		await load();
+		finished = true
 	})
 </script>
-{#if $isLoading}
+{#if $isLoading || !finished}
 	<Progress animated color="info" value={100}/>
 {:else}
 	<AppBar>

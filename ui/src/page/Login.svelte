@@ -4,7 +4,6 @@
 	import {replace}     from "svelte-spa-router"
 	import {
 		Alert,
-		Button,
 		FormGroup,
 		Input,
 		Label
@@ -15,6 +14,7 @@
 		login
 	}                    from "../api/user"
 	import ContainerForm from "../lib/ContainerForm.svelte"
+	import {notify_fast} from "../util/alert"
 
 	let username = ''
 	let password = ''
@@ -24,22 +24,22 @@
 	let msg = ''
 
 	function do_login(ev: SubmitEvent) {
-		if (form.checkValidity()) {
-			ev.stopPropagation()
-			ev.stopImmediatePropagation()
-			ev.preventDefault()
+		ev.stopPropagation()
+		ev.stopImmediatePropagation()
+		ev.preventDefault()
 
-			setTimeout(async function () {
-				const m = await login(username, password)
-				if (m == 'auth.success') {
-					let user = await get_user()
-					USER.set(user)
-					await replace("/")
-				} else {
-					msg = m
-				}
-			})
-		}
+		setTimeout(async function () {
+			const m = await login(username, password)
+			if (m == 'auth.success') {
+				let user = await get_user()
+				USER.set(user)
+				notify_fast("auth.success")
+				await replace("/")
+			} else {
+				msg = m
+			}
+		})
+		return false
 	}
 
 	onMount(function () {
@@ -47,7 +47,7 @@
 	})
 </script>
 <ContainerForm>
-	<form bind:this={form}>
+	<form bind:this={form} method="post" on:submit|preventDefault={do_login}>
 		<FormGroup>
 			<Label for="username">{$_("form.username")}</Label>
 			<Input type="text"
@@ -76,7 +76,9 @@
 			</Alert>
 		{/if}
 		<div style="text-align:center">
-			<Button outline dark on:click={do_login}>{$_("form.login")}</Button>
+			<button type="submit"
+			        class="btn btn-outline-secondary"
+			>{$_("form.login")}</button>
 		</div>
 	</form>
 </ContainerForm>

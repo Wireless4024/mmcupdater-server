@@ -1,6 +1,7 @@
-use axum::{Json, Router};
 use axum::response::IntoResponse;
+use axum::Router;
 use axum::routing::get;
+use tokio::task::spawn_blocking;
 use tracing::log::debug;
 
 use crate::info::DetailedInfo;
@@ -22,7 +23,7 @@ pub fn get_v1() -> Router {
 }
 
 async fn info() -> impl IntoResponse {
-	Json(DetailedInfo::default())
+	HttpResult::success_raw(spawn_blocking(DetailedInfo::default).await.unwrap())
 }
 
 async fn err() -> ResponseResult<&'static str, &'static str> {

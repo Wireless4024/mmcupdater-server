@@ -8,9 +8,10 @@
 
 	export let href: string = ''
 	export let name: string = '_'
-	let active = false
+	
+	let active: boolean
 	$:active = (href.endsWith("/") && href.length > 2) ? $location.startsWith(href) : $location == href
 </script>
-<NavItem>
+<NavItem class="mx-1">
 	<NavLink href="#{href}" {active}>{$_(name)}</NavLink>
 </NavItem>

@@ -1,5 +1,9 @@
+use std::fs::File;
+use std::io::{BufRead, BufReader};
+
 use serde::Serialize;
 use sys_info::{LoadAvg, MemInfo};
+use tokio::task::{JoinHandle, spawn_blocking};
 
 #[derive(Serialize)]
 pub struct GlobalInfo {
@@ -25,7 +29,7 @@ impl Default for GlobalInfo {
 pub struct DetailedInfo {
 	#[serde(flatten)]
 	_info: SysInfo,
-	os: &'static str,
+	os: String,
 	arch: &'static str,
 }
 
@@ -33,7 +37,9 @@ impl Default for DetailedInfo {
 	fn default() -> Self {
 		Self {
 			_info: get_sys_info().unwrap_or_default(),
-			os: std::env::consts::OS,
+			os: sys_info::os_release()
+				.map(|it| format!("{} {it}", std::env::consts::OS))
+				.unwrap_or_else(|_| std::env::consts::OS.to_string()),
 			arch: std::env::consts::ARCH,
 		}
 	}
@@ -49,11 +55,18 @@ struct SysInfo {
 	mem_avail: u64,
 	mem_buff: u64,
 	mem_cache: u64,
+	mem_shm: u64,
+	mem_used: u64,
 	swap_total: u64,
 	swap_free: u64,
 	load_1: f64,
 	load_5: f64,
 	load_15: f64,
+}
+
+#[inline]
+fn sys_info_async() -> JoinHandle<Option<SysInfo>> {
+	spawn_blocking(get_sys_info)
 }
 
 fn get_sys_info() -> Option<SysInfo> {
@@ -70,7 +83,24 @@ fn get_sys_info() -> Option<SysInfo> {
 	} = sys_info::mem_info().ok()?;
 	let hostname = sys_info::hostname().ok()?;
 	let LoadAvg { one: load_1, five: load_5, fifteen: load_15 } = sys_info::loadavg().ok()?;
-
+	let mem_shm = {
+		(|| {
+			let f = File::open("/proc/meminfo").ok()?;
+			let mut reader = BufReader::new(f);
+			let mut buf = String::new();
+			loop {
+				let len = reader.read_line(&mut buf).ok()?;
+				if len == 0 { break None; }
+				if buf.starts_with("Shmem") {
+					let mut split = buf.split_ascii_whitespace();
+					split.next();
+					break split.next().and_then(|it| it.parse::<u64>().ok());
+				}
+				buf.clear();
+			}
+		})().unwrap_or_default()
+	};
+	let mem_used = mem_total - (mem_free + mem_cache);
 	Some(SysInfo {
 		hostname,
 		cpus,
@@ -80,6 +110,8 @@ fn get_sys_info() -> Option<SysInfo> {
 		mem_avail,
 		mem_buff,
 		mem_cache,
+		mem_shm,
+		mem_used,
 		swap_total,
 		swap_free,
 		load_1,

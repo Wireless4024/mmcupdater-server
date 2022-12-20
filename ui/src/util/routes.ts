@@ -54,5 +54,17 @@ const builder = new RouteBuilder()
 		component(() => import("../page/Login.svelte")),
 		{name: "form.login", hidden: writable(true)}
 	)
+	.add(
+		"/instance/:name",
+		component(() => import("../page/Instance.svelte")),
+		{name: "instance.title", hidden: writable(true)}
+	)
+
+
+builder.add(
+	"*",
+	component(() => import("../page/NotFound.svelte")),
+	{name: "page.not_found", hidden: writable(true)}
+)
 
 export default builder.routes

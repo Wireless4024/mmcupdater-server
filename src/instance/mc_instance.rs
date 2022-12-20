@@ -4,7 +4,7 @@ use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use anyhow::{anyhow,Result};
+use anyhow::{anyhow, Result};
 use axum::{extract, Json};
 use axum::body::{Body, BoxBody, boxed};
 use axum::http::{Request, Response, StatusCode, Uri};
@@ -34,7 +34,7 @@ use crate::util::java::JavaManager;
 
 static CONFIG_DOCS: &str = include_str!("../resources/config_docs.yml");
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct McInstance {
 	/// Instance name (may generated from folder name)
 	#[serde(default)]
@@ -404,7 +404,7 @@ impl McInstance {
 	}
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub enum ModType {
 	Vanilla,
 	Purpur,
