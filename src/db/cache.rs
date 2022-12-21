@@ -1,4 +1,6 @@
+use std::collections::BTreeMap;
 use std::future::Future;
+use std::hash::Hash;
 use std::mem;
 use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -8,25 +10,35 @@ use dashmap::mapref::one::Ref;
 use fxhash::FxBuildHasher;
 use tokio::sync::RwLock;
 
-use base::value::{ValueAccess, ValueUpdate};
+use base::value::{RustPrimitiveValue, ValueAccess, ValueUpdate};
 
 pub struct DbCache<T> {
-	table: DashMap<i64, T, FxBuildHasher>,
+	pk_table: DashMap<i64, T, FxBuildHasher>,
+	dyn_table: DashMap<String, DashMap<RustPrimitiveValue, i64, FxBuildHasher>, FxBuildHasher>,
 	mutation_queue: RwLock<DashSet<i64, FxBuildHasher>>,
+	/// Pair<Timestamp, id>
+	purge_queue: RwLock<BTreeMap<u64, i64>>,
 	has_handle: AtomicBool,
+}
+
+#[inline]
+fn new_map<K: Eq + Hash, V>() -> DashMap<K, V, FxBuildHasher> {
+	DashMap::with_hasher(FxBuildHasher::default())
 }
 
 impl<T> DbCache<T> {
 	pub fn new(queue_cap: usize) -> Self {
 		Self {
-			table: DashMap::with_hasher(FxBuildHasher::default()),
+			pk_table: new_map(),
+			dyn_table: new_map(),
 			mutation_queue: RwLock::new(DashSet::with_capacity_and_hasher(queue_cap, FxBuildHasher::default())),
+			purge_queue: RwLock::new(BTreeMap::new()),
 			has_handle: AtomicBool::default(),
 		}
 	}
 
 	pub fn is_empty(&self) -> bool {
-		self.table.is_empty()
+		self.pk_table.is_empty()
 	}
 
 	pub fn should_handle(&self) -> bool {
@@ -39,24 +51,45 @@ impl<T> DbCache<T> {
 	}
 
 	pub fn get(&self, id: i64) -> Option<Ref<i64, T, FxBuildHasher>> {
-		self.table.get(&id)
+		self.pk_table.get(&id)
+	}
+
+	pub fn get_by(&self, filter: RustPrimitiveValue, k: &str) -> Option<Ref<i64, T, FxBuildHasher>> {
+		let a = self.dyn_table.get(k)?;
+		self.get(a.get(&filter).map(|it| *it.value())?)
 	}
 
 	pub fn remove(&self, id: i64) -> Option<T> {
-		self.table
+		self.pk_table
 			.remove(&id)
 			.map(|it| it.1)
 	}
 
 	pub async fn put(&self, id: i64, value: T) {
-		self.table.insert(id, value);
+		self.pk_table.insert(id, value);
 		self.mutation_queue.write().await.insert(id);
+	}
+
+	pub async fn put_by(&self, id: i64, field: &str, value: T) -> Option<()>
+		where T: ValueAccess {
+		let k = value.get_value(field)?.owned();
+		self.put_by_raw(id, field, k, value).await
+	}
+
+	pub async fn put_by_raw(&self, id: i64, field: &str, k: RustPrimitiveValue, value: T) -> Option<()> {
+		self.pk_table.insert(id, value);
+		self.dyn_table
+			.entry(field.to_string())
+			.or_insert_with(new_map)
+			.insert(k, id);
+		self.mutation_queue.write().await.insert(id);
+		Some(())
 	}
 
 	pub async fn modify<F>(&self, id: i64, f: F)
 		where F: for<'f> Fn(&'f mut T) -> Pin<Box<dyn Future<Output=()> + 'f>>
 	{
-		let ent = self.table.get_mut(&id);
+		let ent = self.pk_table.get_mut(&id);
 		if let Some(mut e) = ent {
 			f(&mut e).await;
 			self.mutation_queue.write().await.insert(id);
@@ -71,13 +104,13 @@ impl<T> DbCache<T> {
 	}
 
 	pub fn purge(&self) {
-		self.table.clear();
+		self.pk_table.clear();
 	}
 }
 
 impl<T: ValueAccess + ValueUpdate + Clone> DbCache<T> {
 	pub async fn merge(&self, key: i64, val: &T, keys: &[&str]) {
-		let ent = self.table.get_mut(&key);
+		let ent = self.pk_table.get_mut(&key);
 		if let Some(mut e) = ent {
 			for x in keys {
 				if let Some(v) = val.get_value(x) {
@@ -85,7 +118,7 @@ impl<T: ValueAccess + ValueUpdate + Clone> DbCache<T> {
 				}
 			}
 		} else {
-			self.table.insert(key, val.clone());
+			self.pk_table.insert(key, val.clone());
 		}
 	}
 }

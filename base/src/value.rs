@@ -1,4 +1,6 @@
+use std::cmp::Ordering;
 use std::fmt::{Debug, Formatter};
+use std::hash::{Hash, Hasher};
 
 pub enum RustPrimitiveValueRef<'a> {
 	Integer(Integer),
@@ -7,6 +9,7 @@ pub enum RustPrimitiveValueRef<'a> {
 	Bytes(&'a [u8]),
 }
 
+#[derive(Hash, Ord, PartialOrd, Eq, PartialEq)]
 pub enum RustPrimitiveValue {
 	Integer(Integer),
 	Float(Float),
@@ -45,7 +48,7 @@ impl From<f64> for RustPrimitiveValue {
 	}
 }
 
-#[derive(Clone)]
+#[derive(Clone, Hash, Ord, PartialOrd, Eq, PartialEq)]
 pub enum Integer {
 	I8(i8),
 	I16(i16),
@@ -61,10 +64,49 @@ pub enum Integer {
 	USize(usize),
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum Float {
 	F32(f32),
 	F64(f64),
+}
+
+// impl below is lossy implementation to make derive work only
+impl Hash for Float {
+	fn hash<H: Hasher>(&self, state: &mut H) {
+		match self {
+			Float::F32(f) => { state.write(&f.to_ne_bytes()) }
+			Float::F64(f) => { state.write(&f.to_ne_bytes()) }
+		}
+	}
+}
+
+impl PartialEq for Float {
+	fn eq(&self, other: &Self) -> bool {
+		match self {
+			Float::F32(f) => { f.eq(&(other.as_f64() as f32)) }
+			Float::F64(f) => { f.eq(&other.as_f64()) }
+		}
+	}
+}
+
+impl PartialOrd for Float {
+	fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+		match self {
+			Float::F32(f) => { f.partial_cmp(&(other.as_f64() as f32)) }
+			Float::F64(f) => { f.partial_cmp(&other.as_f64()) }
+		}
+	}
+}
+
+impl Eq for Float {}
+
+impl Ord for Float {
+	fn cmp(&self, other: &Self) -> Ordering {
+		match self {
+			Float::F32(f) => { f.total_cmp(&(other.as_f64() as f32)) }
+			Float::F64(f) => { f.total_cmp(&other.as_f64()) }
+		}
+	}
 }
 
 impl Debug for RustPrimitiveValueRef<'_> {
@@ -157,5 +199,16 @@ pub trait ValueUpdate {
 				self.set_value(x, v.owned());
 			}
 		}
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use crate::value::Float::{F32, F64};
+
+	#[test]
+	fn test() {
+		assert_eq!(F32(1.0), F32(1.0));
+		assert_eq!(F32(2.0), F64(2.0));
 	}
 }
