@@ -6,7 +6,8 @@ use std::time::Duration;
 use anyhow::Result;
 use serde::{Deserializer, Serialize};
 use serde::de::{DeserializeOwned, DeserializeSeed, MapAccess, SeqAccess, Visitor};
-use sqlx::{Column, Database, Decode, Executor, Row, Sqlite, Statement, TypeInfo, ValueRef};
+use sqlx::{Column, Database, Decode, Executor, Pool, Row, Sqlite, Statement, TypeInfo, ValueRef};
+use sqlx::database::{HasStatement, HasValueRef};
 use sqlx::query::Query;
 use sqlx::sqlite::{SqliteArguments, SqliteColumn, SqliteRow, SqliteValueRef};
 use tokio::time::sleep;
@@ -21,12 +22,14 @@ use crate::util::errors::ErrorWrapper;
 use crate::util::modification::ModificationTracker;
 use crate::util::serde::{DeserializeError, get_field_names};
 
-pub struct Repository<D: Database, T: Serialize + DeserializeOwned> {
-	con: DbWrapper<D>,
+pub struct Repository<D: Database, E, T: Serialize + DeserializeOwned>
+	where for<'a> &'a E: Executor<'a, Database=D> {
+	con: DbWrapper<D, E>,
 	cache: Option<Arc<DbCache<T>>>,
 }
 
-impl<D: Database, T: Serialize + DeserializeOwned> Clone for Repository<D, T> {
+impl<D: Database, T: Serialize + DeserializeOwned> Clone for Repository<D, Pool<D>, T>
+	where for<'a> &'a Pool<D>: Executor<'a, Database=D> {
 	fn clone(&self) -> Self {
 		Self {
 			con: DbWrapper::clone(&self.con),
@@ -35,16 +38,35 @@ impl<D: Database, T: Serialize + DeserializeOwned> Clone for Repository<D, T> {
 	}
 }
 
-impl<D: Database, T: Serialize + DeserializeOwned> Repository<D, T> {
-	pub fn new(con: &DbWrapper<D>) -> Self {
+impl<D: Database, T: Serialize + DeserializeOwned> Repository<D, Pool<D>, T>
+	where for<'a> &'a Pool<D>: Executor<'a, Database=D> {
+	pub fn new(con: &DbWrapper<D, Pool<D>>) -> Self {
 		Self {
 			con: DbWrapper::clone(con),
 			cache: None,
 		}
 	}
+	async fn test(&self) -> anyhow::Result<()> {
+		Ok(())
+	}
 }
 
-impl<T> Repository<Sqlite, T>
+impl<D: Database, T> Repository<D, Pool<D>, T>
+	where for<'a> &'a Pool<D>: Executor<'a, Database=D>,
+	      T: Serialize
+	      + DeserializeOwned
+	      + TableMetadata<D>
+	      + Send
+	      + Sync
+	      + Unpin
+	      + 'static
+	      + Clone
+	      + ValueAccess {
+	// this block is for future experiment but I don't have enough time to do it right now
+}
+
+
+impl<T> Repository<Sqlite, Pool<Sqlite>, T>
 	where for<'a> T: Serialize
 	+ DeserializeOwned
 	+ TableMetadata<Sqlite>
@@ -55,7 +77,7 @@ impl<T> Repository<Sqlite, T>
 	+ Clone
 	+ ValueAccess
 {
-	pub fn new_with_cache(con: &DbWrapper<Sqlite>) -> Self {
+	pub fn new_with_cache(con: &DbWrapper<Sqlite, Pool<Sqlite>>) -> Self {
 		let cache: Arc<DbCache<T>> = con.get_cache_for();
 		let repo = Self {
 			con: DbWrapper::clone(con),
@@ -273,7 +295,7 @@ impl<T> Repository<Sqlite, T>
 	}
 }
 
-impl<'de, T> Repository<Sqlite, T>
+impl<'de, T> Repository<Sqlite, Pool<Sqlite>, T>
 	where T: Serialize
 	+ DeserializeOwned
 	+ TableMetadata<Sqlite>
