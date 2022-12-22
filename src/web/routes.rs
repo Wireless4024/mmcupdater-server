@@ -67,8 +67,6 @@ async fn handler(ws: Option<WebSocketUpgrade>, State(client): State<Client<HttpC
 				protocols.push(String::from_utf8_lossy(v.as_bytes()).into_owned())
 			}
 		}
-		println!("{:?}", req.headers());
-		println!("{:?}", reqb.headers_ref());
 		let reqb = reqb
 			.body(())
 			.unwrap();
@@ -136,7 +134,6 @@ async fn handler(ws: Option<WebSocketUpgrade>, State(client): State<Client<HttpC
 			});
 		};
 		trace!("failed to create ws tunnel");
-		// ws_origin.next().await.unwrap().unwrap().
 		"".into_response()
 	} else {
 		let path = req.uri().path();
