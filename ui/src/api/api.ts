@@ -44,7 +44,7 @@ export function raw_get<T>(path: string): Promise<Result<T>> {
 		method        : 'GET',
 		cache         : 'no-cache',
 		referrerPolicy: 'no-referrer',
-		redirect      : "error",
+		redirect      : "follow",
 	})
 		.then(HANDLE_RESP)
 		.then(it => it as Result<T>)
@@ -59,7 +59,7 @@ export function raw_post<T>(path: string, body: any): Promise<Result<T>> {
 		headers       : {
 			'Content-Type': 'application/json'
 		},
-		redirect      : "error",
+		redirect      : "follow",
 		referrerPolicy: 'no-referrer',
 		body          : typeof body == 'string' ? body : JSON.stringify(body)
 	})
@@ -81,8 +81,8 @@ export function get<T, E = string>(url: string): PromiseSafe<T, Error<E>> {
 }
 
 export async function check(): Promise<boolean> {
-	return fetch(HOST + "/api")
-		.then(it => it.json())
+	return fetch(HOST + "/api",{mode:"no-cors",redirect:"follow",credentials:"same-origin"})
+		.then(it => it.text())
 		.then(() => true)
 		.catch(() => (urgent('http.500', 'danger'), false))
 }

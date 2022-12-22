@@ -177,8 +177,9 @@ mod jwt {
 									Ok(claim) => {
 										return Ok(Authorization(claim.claims));
 									}
-									Err(err) => {
-										Err::<(), _>(err).expect("");
+									Err(_) => {
+										// does nothing for now just request to re-login
+										// Err::<(), _>(err).expect("");
 									}
 								};
 								break;
