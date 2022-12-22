@@ -4,9 +4,9 @@ use std::sync::Arc;
 
 use axum::Extension;
 use dashmap::DashMap;
-use serde::Serialize;
 use serde::de::DeserializeOwned;
-use sqlx::{Database, migrate, Pool, Sqlite};
+use serde::Serialize;
+use sqlx::{Database, Executor, migrate, Pool, Sqlite};
 use tokio::fs::{File, metadata};
 use tracing::debug;
 
@@ -20,31 +20,35 @@ mod repository;
 mod table_meta;
 pub(crate) mod cache;
 
-pub struct DbWrapper<D: Database> {
-	pool: Arc<Pool<D>>,
+pub struct DbWrapper<D: Database, E> where for<'a> &'a E: Executor<'a, Database=D> {
+	pool: Arc<E>,
 	cache: Arc<DashMap<&'static str, Arc<dyn Any + Send + Sync>>>,
 }
 
-impl<D: Database> Deref for DbWrapper<D> {
-	type Target = Arc<Pool<D>>;
+impl<D: Database, E> Deref for DbWrapper<D, E> where for<'a> &'a E: Executor<'a, Database=D> {
+	type Target = Arc<E>;
 
 	fn deref(&self) -> &Self::Target {
 		&self.pool
 	}
 }
 
-impl<D: Database> Clone for DbWrapper<D> {
+impl<D: Database> Clone for DbWrapper<D, Pool<D>> where for<'a> &'a Pool<D>: Executor<'a, Database=D> {
 	fn clone(&self) -> Self {
 		Self { pool: Arc::clone(&self.pool), cache: Arc::clone(&self.cache) }
 	}
 }
 
-impl<D: Database> DbWrapper<D> {
+impl<D: Database> DbWrapper<D, Pool<D>> where for<'a> &'a Pool<D>: Executor<'a, Database=D> {
 	pub async fn close(&self) {
-		self.pool.close().await
+		Pool::<D>::close(self.executor()).await
 	}
 
-	pub fn repo<T>(&self) -> Repository<D, T> where T: TableMetadata<D> + Serialize + DeserializeOwned + Send + Sync + 'static {
+	pub fn executor(&self) -> &Pool<D> {
+		&self.pool
+	}
+
+	pub fn repo<T>(&self) -> Repository<D, Pool<D>, T> where T: TableMetadata<D> + Serialize + DeserializeOwned + Send + Sync + 'static {
 		Repository::new(self)
 	}
 
@@ -60,8 +64,8 @@ impl<D: Database> DbWrapper<D> {
 	}
 }
 
-impl DbWrapper<Sqlite> {
-	pub fn repo_with_cache<T>(&self) -> Repository<Sqlite, T>
+impl DbWrapper<Sqlite, Pool<Sqlite>> {
+	pub fn repo_with_cache<T>(&self) -> Repository<Sqlite, Pool<Sqlite>, T>
 		where T: TableMetadata<Sqlite>
 		+ Serialize
 		+ DeserializeOwned
@@ -75,9 +79,9 @@ impl DbWrapper<Sqlite> {
 	}
 }
 
-pub type DB = Extension<DbWrapper<Sqlite>>;
+pub type DB = Extension<DbWrapper<Sqlite, Pool<Sqlite>>>;
 
-pub async fn init() -> anyhow::Result<DbWrapper<Sqlite>> {
+pub async fn init() -> anyhow::Result<DbWrapper<Sqlite, Pool<Sqlite>>> {
 	if metadata("db.sqlite").await.is_err() {
 		File::create("db.sqlite").await?;
 	}

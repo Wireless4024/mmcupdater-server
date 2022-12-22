@@ -3,7 +3,7 @@ use std::path::PathBuf;
 
 use axum::{Extension, Router};
 use axum_server::tls_rustls::RustlsConfig;
-use sqlx::Sqlite;
+use sqlx::{Pool, Sqlite};
 use tracing::{debug, info};
 
 use crate::db::DbWrapper;
@@ -12,7 +12,7 @@ use crate::util::config::get_config;
 use crate::util::errors::ErrorWrapper;
 use crate::web::routes::build_route;
 
-pub async fn init(manager: InstanceManagerExt, db: DbWrapper<Sqlite>) -> Result<(), ErrorWrapper> {
+pub async fn init(manager: InstanceManagerExt, db: DbWrapper<Sqlite, Pool<Sqlite>>) -> Result<(), ErrorWrapper> {
 	let cfg = get_config().await;
 	let app = build_route(Router::new());
 	let app = app

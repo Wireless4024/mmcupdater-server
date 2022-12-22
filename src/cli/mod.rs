@@ -5,7 +5,7 @@ use std::io::stdin;
 use std::process::exit;
 
 use clap::{Parser, Subcommand};
-use sqlx::Sqlite;
+use sqlx::{Pool, Sqlite};
 
 use user::UserCommand;
 
@@ -32,7 +32,7 @@ fn run_async<F: Future>(fut: F) {
 	rt.block_on(fut);
 }
 
-fn run_async_db<F: FnOnce(DbWrapper<Sqlite>) -> Fut, Fut: Future>(f: F) {
+fn run_async_db<F: FnOnce(DbWrapper<Sqlite, Pool<Sqlite>>) -> Fut, Fut: Future>(f: F) {
 	let rt = tokio::runtime::Builder::new_multi_thread()
 		.enable_all()
 		.global_queue_interval(255)
@@ -42,7 +42,7 @@ fn run_async_db<F: FnOnce(DbWrapper<Sqlite>) -> Fut, Fut: Future>(f: F) {
 	rt.block_on(f(db));
 }
 
-async fn get_db() -> DbWrapper<Sqlite> {
+async fn get_db() -> DbWrapper<Sqlite, Pool<Sqlite>> {
 	db::init().await.unwrap()
 }
 
