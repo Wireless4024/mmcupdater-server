@@ -1,2 +1,2 @@
-export const HOST = "http://localhost:8181"
+export const HOST = ""
 export const BAND = "MMCUPDATER"

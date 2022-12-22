@@ -9,13 +9,12 @@ use axum::routing::{any, get};
 use futures::{SinkExt, StreamExt};
 use hyper::{Body, Client, Uri};
 use hyper::client::HttpConnector;
-use tokio::join;
-use tokio::task::spawn_local;
+use tokio::{join, spawn};
 use tokio_tungstenite::connect_async;
 use tokio_tungstenite::tungstenite::handshake::client::generate_key;
 use tokio_tungstenite::tungstenite::Message as TMessage;
 use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode;
-use tracing::{debug, trace};
+use tracing::trace;
 
 use crate::info::GlobalInfo;
 use crate::util::config::get_config;
@@ -50,32 +49,38 @@ async fn handler(ws: Option<WebSocketUpgrade>, State(client): State<Client<HttpC
 
 		uri.replace_range(..4, "ws");
 		trace!("construct reverse websocket to {uri:?}");
-		let proto = req.headers().get("Sec-WebSocket-Protocol");
 		let uri = Uri::from_str(&uri).unwrap();
-		let mut req = Request::builder()
+		let mut reqb = Request::builder()
 			.uri(&uri)
 			.method("GET")
-			.header("Host", uri.host().unwrap())
+			.header("Host", format!("{}:{}", uri.host().unwrap(), uri.port_u16().unwrap_or(80)))
 			.header("Connection", "Upgrade")
 			.header("Upgrade", "websocket")
-			.header("Sec-WebSocket-Version", "13");
-		if let Some(proto) = proto {
-			req = req.header("Sec-WebSocket-Protocol", proto);
+			.header("Sec-WebSocket-Key", generate_key());
+		let mut protocols: Vec<String> = Vec::new();
+		for (k, v) in req.headers().iter() {
+			let kstr = k.as_str();
+			if kstr.starts_with("sec-websocket") {
+				reqb = reqb.header(k, v);
+			}
+			if kstr.ends_with("protocol") {
+				protocols.push(String::from_utf8_lossy(v.as_bytes()).into_owned())
+			}
 		}
-
-		let req = req
-			.header("Sec-WebSocket-Key", generate_key())
+		println!("{:?}", req.headers());
+		println!("{:?}", reqb.headers_ref());
+		let reqb = reqb
 			.body(())
 			.unwrap();
 
-		if let Ok((origin, _)) = connect_async(req).await {
+		if let Ok((origin, _)) = connect_async(reqb).await {
 			trace!("connected to ws origin");
-			return ws.on_upgrade(|ws| {
+			return ws.protocols(protocols).on_upgrade(|ws| {
 				trace!("upgraded current connection");
 				async move {
 					let (mut send, mut recv) = ws.split();
 					let (mut osend, mut orecv) = origin.split();
-					let forward = spawn_local(async move {
+					let forward = spawn(async move {
 						while let Some(Ok(res)) = orecv.next().await {
 							send.send(match res {
 								TMessage::Text(s) => {
@@ -101,7 +106,7 @@ async fn handler(ws: Option<WebSocketUpgrade>, State(client): State<Client<HttpC
 						}
 						anyhow::Result::<()>::Ok(())
 					});
-					let backward = spawn_local(async move {
+					let backward = spawn(async move {
 						while let Some(Ok(res)) = recv.next().await {
 							osend.send(match res {
 								Message::Text(s) => {

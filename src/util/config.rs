@@ -46,9 +46,9 @@ pub struct HttpConfig {
 	/// certificate key (private key)
 	#[serde(default)]
 	pub cert_key: Option<String>,
-	
+
 	/// Proxy root location to new location (used in development)
-	#[serde(default)]
+	#[serde(default = "default_root_proxy")]
 	pub root_proxy: Option<String>,
 
 	/// config related to jwt
@@ -62,6 +62,12 @@ pub struct HttpConfig {
 
 const fn default_port() -> u16 { 8181 }
 
+#[cfg(not(debug_assertions))]
+fn default_root_proxy() -> Option<String> { None }
+
+#[cfg(debug_assertions)]
+fn default_root_proxy() -> Option<String> { Some("http://127.0.0.1:5173".to_string()) }
+
 impl Default for HttpConfig {
 	fn default() -> Self {
 		Self {
@@ -71,7 +77,7 @@ impl Default for HttpConfig {
 			secure: false,
 			cert_file: None,
 			cert_key: None,
-			root_proxy: None,
+			root_proxy: default_root_proxy(),
 			jwt: Default::default(),
 			cors: Default::default(),
 		}
