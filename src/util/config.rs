@@ -46,6 +46,10 @@ pub struct HttpConfig {
 	/// certificate key (private key)
 	#[serde(default)]
 	pub cert_key: Option<String>,
+	
+	/// Proxy root location to new location (used in development)
+	#[serde(default)]
+	pub root_proxy: Option<String>,
 
 	/// config related to jwt
 	#[serde(default)]
@@ -67,6 +71,7 @@ impl Default for HttpConfig {
 			secure: false,
 			cert_file: None,
 			cert_key: None,
+			root_proxy: None,
 			jwt: Default::default(),
 			cors: Default::default(),
 		}
@@ -199,6 +204,7 @@ impl ConfigRoot {
 				secure: false,
 				cert_file: None,
 				cert_key: None,
+				root_proxy: None,
 				jwt: JwtConfig {
 					algo: default_jwt_algo(),
 					enc_key: String::new(),
