@@ -13,7 +13,7 @@ anyhow = "1.0"
 thiserror = "1"
 
 # Http
-axum = { version = "0.6", features = ["multipart", "ws"] }
+axum = { version = "0.6", features = ["multipart", "ws","macros"] }
 axum-server = { version = "0.4", features = ["tls-rustls"] }
 hyper = "0.14"
 reqwest = { version = "0.11", features = ["async-compression", "rustls", "json", "stream"] }
@@ -53,6 +53,7 @@ tokio-rayon = "2"
 # Async utils
 async-trait = "0.1"
 futures = "0.3"
+kanal = "0.1.0-pre7"
 
 # Misc
 flate2 = { version = "1.0" }
@@ -77,7 +78,7 @@ clap = { version = "4.0", features = ["derive"] }
 rpassword = "7.2"
 
 # Shared lib
-pedestal-rs = { git = "https://github.com/Wireless4024/pedestal-rs.git", rev = "8d647244817d4f11efa666f9ad189c5be60d9785", features = ["fs", "mutation", "async"] }
+pedestal-rs = { git = "https://github.com/Wireless4024/pedestal-rs.git", rev = "58603f685d4dbf9d629337f36bb765d887fd3129", features = ["fs", "mutation", "async"] }
 
 [profile.release]
 debug-assertions = false

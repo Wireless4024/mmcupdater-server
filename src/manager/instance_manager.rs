@@ -4,9 +4,9 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use axum::Extension;
-use hashbrown::HashMap;
+use dashmap::DashMap;
 use pedestal_rs::fs::path::normalize;
-use tokio::fs::{create_dir_all, File, read_dir};
+use tokio::fs::{create_dir_all, File, read_dir, remove_dir};
 use tokio::sync::{OwnedRwLockWriteGuard, RwLock};
 use tracing::{debug, error, info};
 
@@ -16,7 +16,7 @@ type Instance = Arc<RwLock<McInstance>>;
 pub type InstanceManagerExt = Extension<Arc<RwLock<InstanceManager>>>;
 
 pub struct InstanceManager {
-	pub instances: HashMap<String, Instance>,
+	pub instances: DashMap<String, Instance>,
 	folder: String,
 }
 
@@ -52,7 +52,7 @@ macro_rules! instance_async_ro {
 impl InstanceManager {
 	pub fn new() -> Self {
 		Self {
-			instances: HashMap::new(),
+			instances: Default::default(),
 			folder: String::from("instances"),
 		}
 	}
@@ -100,7 +100,7 @@ impl InstanceManager {
 		Ok(())
 	}
 
-	pub async fn new_instance(&mut self, name: &str, version: &str, typ: ModType) -> Result<Instance> {
+	pub async fn new_instance(&self, name: &str, version: &str, typ: ModType) -> Result<Instance> {
 		let path = normalize(self.folder.as_ref(), name)?;
 		if !path.exists() {
 			create_dir_all(&path).await?;
@@ -108,16 +108,28 @@ impl InstanceManager {
 		let instance = McInstance::generate(&path, version, typ).await?;
 		let name = instance.name.clone();
 		let instance = Arc::new(RwLock::new(instance));
-		self.instances.insert(name, instance.clone());
+		self.instances.insert(name, Arc::clone(&instance));
 		Ok(instance)
 	}
 
-	pub fn names(&self) -> Vec<&str> {
-		self.instances.keys().map(|it| it.as_str()).collect()
+	pub async fn remove_instance(&self, name: &str) -> Result<Option<Instance>> {
+		let path = normalize(self.folder.as_ref(), name)?;
+		if let Some((_, instance)) = self.instances.remove(name) {
+			if path.exists() {
+				remove_dir(instance.read().await.dir("").unwrap()).await?;
+			}
+			Ok(Some(instance))
+		} else {
+			Ok(None)
+		}
+	}
+
+	pub fn names(&self) -> Vec<String> {
+		self.instances.iter().map(|it| it.key().as_str().to_string()).collect()
 	}
 
 	pub fn find(&self, name: &str) -> Option<Instance> {
-		self.instances.get(name).map(Arc::clone)
+		self.instances.get(name).map(|it| Arc::clone(it.value()))
 	}
 
 	pub async fn with_instance_async<'a, T, Fut: Future<Output=T> + 'a, Fn: FnOnce(OwnedRwLockWriteGuard<McInstance>) -> Fut>(&'a self, name: &str, block: Fn) -> Option<T> {

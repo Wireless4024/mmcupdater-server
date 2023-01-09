@@ -16,7 +16,7 @@
 	import NavLinkItem     from "./nav/NavLinkItem.svelte"
 </script>
 <Navbar light="true" class="mb-2">
-	<Nav pills>
+	<Nav tabs>
 		<NavLinkItem href="/" name="nav.home"/>
 		<NavDropdown/>
 		<NavItem>
@@ -29,7 +29,7 @@
 			<NavLink disabled href="#">Disabled Link</NavLink>
 		</NavItem>
 	</Nav>
-	<Nav pills>
+	<Nav tabs>
 		{#if $USER}
 			<NavItem>
 				<NavLink href="#" on:click={logout}>{$_("form.logout")}</NavLink>

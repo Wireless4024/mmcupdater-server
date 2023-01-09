@@ -71,3 +71,5 @@ pub async fn get_zip_file(path: PathBuf) -> Result<PathBuf> {
 		Ok(target_path)
 	}
 }
+
+pub fn sync_send<T: Send + Sync>(_:T) {}

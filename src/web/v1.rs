@@ -5,7 +5,7 @@ use tokio::task::spawn_blocking;
 use tracing::log::debug;
 
 use crate::info::DetailedInfo;
-use crate::util::errors::{HttpResult, ResponseResult};
+use crate::util::errors::{ResultBase, ResponseResult};
 
 mod auth;
 mod instance;
@@ -23,13 +23,13 @@ pub fn get_v1() -> Router {
 }
 
 async fn info() -> impl IntoResponse {
-	HttpResult::success_raw(spawn_blocking(DetailedInfo::default).await.unwrap())
+	ResultBase::success_raw(spawn_blocking(DetailedInfo::default).await.unwrap())
 }
 
 async fn err() -> ResponseResult<&'static str, &'static str> {
-	HttpResult::err("hello")
+	ResultBase::err("hello")
 }
 
 async fn success() -> ResponseResult<&'static str> {
-	HttpResult::success("Ayyooo")
+	ResultBase::success("Ayyooo")
 }

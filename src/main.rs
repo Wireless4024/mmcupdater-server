@@ -1,6 +1,5 @@
 #![feature(str_split_as_str)]
 #![feature(io_error_more)]
-#![forbid(unsafe_code)]
 
 extern crate core;
 

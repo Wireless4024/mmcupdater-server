@@ -23,7 +23,7 @@ pub fn zip_to_io(err: ZipError) -> io::Error {
 pub type Result<T> = std::result::Result<T, ErrorWrapper>;
 
 #[derive(Serialize)]
-pub struct HttpResult<T: Serialize, M: Serialize> {
+pub struct ResultBase<T: Serialize, M: Serialize> {
 	success: bool,
 	#[serde(skip_serializing_if = "Option::is_none")]
 	message: Option<M>,
@@ -33,9 +33,50 @@ pub struct HttpResult<T: Serialize, M: Serialize> {
 	result: Option<T>,
 }
 
-pub type ResponseResult<T, M = &'static str> = std::result::Result<Json<HttpResult<T, M>>, ErrorWrapper>;
+pub type ResponseResult<T, M = &'static str> = std::result::Result<Json<ResultBase<T, M>>, ErrorWrapper>;
 
-impl<M: Serialize> HttpResult<String, M> {
+pub mod rest {
+	use axum::body::BoxBody;
+	use axum::http::{Response, StatusCode};
+	use axum::response::IntoResponse;
+	use serde::Serialize;
+
+	use crate::util::errors::{ErrorWrapper, ResultBase};
+
+	pub type Resp = Result<Response<BoxBody>, ErrorWrapper>;
+
+	pub fn got<T: Serialize>(data: T) -> Resp {
+		Ok(ResultBase::success(data).into_response())
+	}
+
+	pub fn no_content() -> Resp {
+		Ok(StatusCode::NO_CONTENT.into_response())
+	}
+
+	pub fn not_found() -> Resp {
+		Ok(StatusCode::NOT_FOUND.into_response())
+	}
+
+	pub fn conflict() -> Resp {
+		Ok(StatusCode::CONFLICT.into_response())
+	}
+
+	pub fn created<T: Serialize>(data: T) -> Resp {
+		let mut res = ResultBase::success(data).into_response();
+		*res.status_mut() = StatusCode::CREATED;
+		Ok(res)
+	}
+
+	pub fn updated<T: Serialize>(data: T) -> Resp {
+		Ok(ResultBase::success(data).into_response())
+	}
+
+	pub fn deleted<T: Serialize>(data: T) -> Resp {
+		Ok(ResultBase::success(data).into_response())
+	}
+}
+
+impl<M: Serialize> ResultBase<String, M> {
 	pub const fn err_raw(message: M) -> Json<Self> {
 		Json(Self {
 			success: false,
@@ -46,7 +87,7 @@ impl<M: Serialize> HttpResult<String, M> {
 	}
 }
 
-impl<T: Serialize> HttpResult<T, &'static str> {
+impl<T: Serialize> ResultBase<T, &'static str> {
 	pub const fn success(data: T) -> std::result::Result<Json<Self>, ErrorWrapper> {
 		Ok(Json(Self {
 			success: true,
@@ -66,7 +107,7 @@ impl<T: Serialize> HttpResult<T, &'static str> {
 	}
 }
 
-impl<T: Serialize, M: Serialize> HttpResult<T, M> {
+impl<T: Serialize, M: Serialize> ResultBase<T, M> {
 	pub const fn err(message: M) -> std::result::Result<Json<Self>, ErrorWrapper> {
 		Ok(Json(Self {
 			success: false,

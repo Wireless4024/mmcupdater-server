@@ -7,7 +7,7 @@ use base::ser_ref::ToJsonValue;
 
 use crate::db::DB;
 use crate::entity::user::User;
-use crate::util::errors::{HttpResult, ResponseResult};
+use crate::util::errors::{ResultBase, ResponseResult};
 use crate::web::authentication::Authorization;
 
 pub fn build() -> Router {
@@ -20,5 +20,5 @@ async fn me(db: DB, Authorization(inner): Authorization) -> ResponseResult<Value
 	let uid = inner.id;
 	let repo = db.repo_with_cache::<User>();
 	let user = repo.get(uid).await.unwrap();
-	HttpResult::success(user.to_json())
+	ResultBase::success(user.to_json())
 }

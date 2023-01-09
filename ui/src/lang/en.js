@@ -47,6 +47,7 @@ export default {
     mod_type: "Mod type",
     java: "Java executable",
     max_ram: "Max heap",
+    ram_over_usage: "+600MiB when running",
     jvm_args: "Java args",
     server_file: "Server file",
     args: "Server args",

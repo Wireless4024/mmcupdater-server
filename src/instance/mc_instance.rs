@@ -12,7 +12,6 @@ use axum::response::IntoResponse;
 use futures::stream::FuturesUnordered;
 use futures::StreamExt;
 use hashbrown::HashMap;
-use pedestal_rs::ext::ArcExt;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use tokio::fs::{create_dir_all, File, metadata, read_dir, remove_dir_all, remove_file, rename};
@@ -149,25 +148,25 @@ impl McInstance {
 		{
 			let java = java_for(&cfg.version).unwrap();
 			let folder = folder.to_string_lossy().to_string();
-			cfg.config.modify_async(|c| Box::pin(async {
-				c.directory = folder;
-				if c.java.is_empty() {
-					let j = JavaManager::get_version(java.recommended).await;
-					match j {
-						None => {
-							c.java = "java".to_string();
-						}
-						Some(it) => {
-							c.java = it.path_for(&c.directory).to_string_lossy().to_string();
-							let extra_args = it.performance_args();
-							if !extra_args.is_empty()
-								&& !c.jvm_args.iter().any(|it| it == extra_args[0]) {
-								c.jvm_args.extend(extra_args.iter().map(|it| it.to_string()));
-							}
+			let mut c = MinecraftConfig::clone(&cfg.config);
+			c.directory = folder;
+			if c.java.is_empty() {
+				let j = JavaManager::get_version(java.recommended).await;
+				match j {
+					None => {
+						c.java = "java".to_string();
+					}
+					Some(it) => {
+						c.java = it.path_for(&c.directory).to_string_lossy().to_string();
+						let extra_args = it.performance_args();
+						if !extra_args.is_empty()
+							&& !c.jvm_args.iter().any(|it| it == extra_args[0]) {
+							c.jvm_args.extend(extra_args.iter().map(|it| it.to_string()));
 						}
 					}
 				}
-			})).await;
+			}
+			cfg.config = Arc::new(c);
 		}
 		cfg.save().await?;
 		Ok(cfg)
@@ -235,7 +234,7 @@ impl McInstance {
 			Err(err) => Err(
 				(
 					StatusCode::INTERNAL_SERVER_ERROR,
-					format!("Something went wrong: {}", err)
+					format!("Something went wrong: {err}")
 				)
 			),
 		}
@@ -391,9 +390,12 @@ impl McInstance {
 			file_infos.push(MinecraftMod::try_parse(x));
 		}
 
-		let f = file_infos.collect::<Vec<_>>().await.into_iter()
-			.filter(|it| it.is_ok())
-			.map(|it| it.unwrap()).collect();
+		let f = file_infos
+			.collect::<Vec<_>>()
+			.await
+			.into_iter()
+			.filter_map(|it| it.ok())
+			.collect();
 		Ok(f)
 	}
 
@@ -412,7 +414,7 @@ pub enum ModType {
 }
 
 impl Default for ModType {
-	fn default() -> Self { Self::Vanilla }
+	fn default() -> Self { Self::Purpur }
 }
 
 impl ModType {

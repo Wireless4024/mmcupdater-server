@@ -5,8 +5,10 @@
 	}                           from "svelte"
 	import {_}                  from "svelte-i18n"
 	import {
+		Button,
 		Card,
 		CardBody,
+		CardFooter,
 		CardHeader,
 		CardText,
 		CardTitle,
@@ -61,6 +63,9 @@
 					</ListGroup>
 				</CardText>
 			</CardBody>
+			<CardFooter>
+				<Button color="primary">Create</Button>
+			</CardFooter>
 		</Card>
 		<Card class="mb-3">
 			<CardHeader>
@@ -96,7 +101,8 @@
 									{$_("sys.mem")}
 								</Col>
 								<Col xs="6">
-									{memory_unit_from_k(sys_info.mem_used)} / {memory_unit_from_k(sys_info.mem_total)} <br>
+									{memory_unit_from_k(sys_info.mem_used)} / {memory_unit_from_k(sys_info.mem_total)}
+									<br>
 								</Col>
 								<Col>
 									<ProgressAuto

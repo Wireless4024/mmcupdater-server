@@ -1,4 +1,4 @@
-<div class="container-wrap">
+<div class="container-wrap" on:click>
 	<slot></slot>
 </div>
 <style>

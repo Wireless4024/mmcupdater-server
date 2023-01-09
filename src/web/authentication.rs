@@ -98,8 +98,9 @@ pub async fn init() -> std::io::Result<()> {
 
 mod jwt {
 	use async_trait::async_trait;
-	use axum::extract::FromRequest;
-	use axum::http::{Request, StatusCode};
+	use axum::extract::{FromRequest, FromRequestParts};
+	use axum::http::request::Parts;
+	use axum::http::StatusCode;
 	use jsonwebtoken::{decode, DecodingKey, encode, EncodingKey, Header, Validation};
 	use serde::{Deserialize, Serialize};
 	use tokio::sync::OnceCell;
@@ -140,11 +141,11 @@ mod jwt {
 	}
 
 	#[async_trait]
-	impl<B: Send + 'static, S: Send + Sync> FromRequest<S, B> for Authorization {
+	impl<S: Send + Sync> FromRequestParts<S> for Authorization {
 		type Rejection = ErrorWrapper;
 
-		async fn from_request(req: Request<B>, _state: &S) -> Result<Self, Self::Rejection> {
-			let headers = req.headers();
+		async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
+			let headers = &parts.headers;
 			if let Some(key) = headers.get("Authorization") {
 				if let Ok(v) = key.to_str() {
 					let jwt = v.split("Bearer ").nth(1);
