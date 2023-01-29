@@ -1,4 +1,6 @@
 # Minecraft MultiMC-pack updater server
+[![FOSSA Status](https://app.fossa.com/api/projects/git%2Bgithub.com%2FWireless4024%2Fmmcupdater-server.svg?type=shield)](https://app.fossa.com/projects/git%2Bgithub.com%2FWireless4024%2Fmmcupdater-server?ref=badge_shield)
+
 
 this is server side implementation for [mmcupdater](https://github.com/Wireless4024/mmcupdater)
 
@@ -32,3 +34,6 @@ this is server side implementation for [mmcupdater](https://github.com/Wireless4
 + [ ] multiple-node support (executable itself can run as client or server mode)
 + [ ] fast file transfer between nodes
 + [ ] (ui) node manager
+
+## License
+[![FOSSA Status](https://app.fossa.com/api/projects/git%2Bgithub.com%2FWireless4024%2Fmmcupdater-server.svg?type=large)](https://app.fossa.com/projects/git%2Bgithub.com%2FWireless4024%2Fmmcupdater-server?ref=badge_large)
